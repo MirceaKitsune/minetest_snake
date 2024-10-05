@@ -1,67 +1,86 @@
 -- Snake mod by MirceaKitsune
 snake_default = {}
 
--- Helper for repeating a shape inside an area for a shape group, loops from the shape's position to the given offset
-function shape_area(shapes, shape, offset)
-	for _, x in offset.x do
-		for _, y in offset.y do
-			for _, z in offset.z do
-				s = table.copy(shape)
-				s.position = vector.add(shape.position, vector.new(x, y, z))
-				table.insert(shapes, s)
+-- Returns the list of sphere positions for the given radius and hardness centered around a position
+function position_get_sphere(name, pos, radius, hardness)
+	local nodes = {}
+	for x = pos.x - radius, pos.x + radius do
+		for y = pos.y - radius, pos.y + radius do
+			for z = pos.z - radius, pos.z + radius do
+				local p = vector.new(x, y, z)
+				if hardness >= 1 or vector.distance(pos, p) <= radius * (1 + hardness) then
+					table.insert(nodes, {x = p.x, y = p.y, z = p.z, name = name})
+				end
 			end
 		end
 	end
+	return nodes
 end
 
--- Helper for adding a shape group multiple times to a layer
-function layer_add(layer, count, shape)
+-- Returns a combined list of nodes removing duplicates
+function nodes_get_mixed(list)
+	local nodes = {}
+	for _, nodes_list in ipairs(list) do
+		for _, n1 in ipairs(nodes_list) do
+			local has = false
+			for _, n2 in ipairs(nodes) do
+				has = vector.equals(n1, n2)
+				if has then break end
+			end
+			if not has then table.insert(nodes, {x = n1.x, y = n1.y, z = n1.z, name = n1.name}) end
+		end
+	end
+	return nodes
+end
+
+-- Helper for adding a node list multiple times to a layer
+function layer_add(layer, count, nodes)
 	for i = 1, count do
-		table.insert(layer, shape)
+		table.insert(layer, nodes)
 	end
 end
 
 -- Shape definitions
-local shapes_body_head = {
-	{nodes = {"snake_default:snake_body"}, position = {x = 0, y = 0, z = 0}, radius = 5, roundness = 0.25},
-	{nodes = {"snake_default:snake_body"}, position = {x = 0, y = -2, z = 5}, radius = 2, roundness = 0.25}, -- Nose
-	{nodes = {"snake_default:snake_body"}, position = {x = -4, y = 4, z = 0}, radius = 2, roundness = 0.25}, -- Ear, left
-	{nodes = {"snake_default:snake_body"}, position = {x = 4, y = 4, z = 0}, radius = 2, roundness = 0.25}, -- Ear, right
-}
-local shapes_body_segment = {
-	{nodes = {"snake_default:snake_body"}, position = {x = 0, y = -1, z = 0}, radius = 4, roundness = 0.25},
-}
-local shapes_body_tail = {
-	{nodes = {"snake_default:snake_body"}, position = {x = 0, y = -2, z = 0}, radius = 3, roundness = 0.25},
-}
-local shapes_flesh_head = {
-	{nodes = {"snake_default:snake_flesh"}, position = {x = 0, y = 0, z = 0}, radius = 4, roundness = 0.25},
-}
-local shapes_flesh_segment = {
-	{nodes = {"snake_default:snake_flesh"}, position = {x = 0, y = -1, z = 0}, radius = 3, roundness = 0.25},
-}
-local shapes_air_head = {
-	{nodes = {"air"}, position = {x = 0, y = 0, z = 0}, radius = 3, roundness = 0.125},
-	{nodes = {"air"}, position = {x = 0, y = -3, z = 3}, radius = 1, roundness = 0.5}, -- Mouth 1
-	{nodes = {"air"}, position = {x = 0, y = -4, z = 6}, radius = 1, roundness = 0.5}, -- Mouth 2
-}
-local shapes_air_segment = {
-	{nodes = {"air"}, position = {x = 0, y = -1, z = 0}, radius = 2, roundness = 0.125},
-}
+local nodes_body_head = nodes_get_mixed({
+	position_get_sphere({"snake_default:snake_body"}, {x = 0, y = 0, z = 0}, 5, 0.25),
+	position_get_sphere({"snake_default:snake_body"}, {x = 0, y = -2, z = 5}, 2, 0.25), -- Nose
+	position_get_sphere({"snake_default:snake_body"}, {x = -4, y = 4, z = 0}, 2, 0.25), -- Ear, left
+	position_get_sphere({"snake_default:snake_body"}, {x = 4, y = 4, z = 0}, 2, 0.25), -- Ear, right
+})
+local nodes_body_segment = nodes_get_mixed({
+	position_get_sphere({"snake_default:snake_body"}, {x = 0, y = -1, z = 0}, 4, 0.25),
+})
+local nodes_body_tail = nodes_get_mixed({
+	position_get_sphere({"snake_default:snake_body"}, {x = 0, y = -2, z = 0}, 3, 0.25),
+})
+local nodes_flesh_head = nodes_get_mixed({
+	position_get_sphere({"snake_default:snake_flesh"}, {x = 0, y = 0, z = 0}, 4, 0.25),
+})
+local nodes_flesh_segment = nodes_get_mixed({
+	position_get_sphere({"snake_default:snake_flesh"}, {x = 0, y = -1, z = 0}, 3, 0.25),
+})
+local nodes_air_head = nodes_get_mixed({
+	position_get_sphere({"air"}, {x = 0, y = 0, z = 0}, 3, 0.125),
+	position_get_sphere({"air"}, {x = 0, y = -3, z = 3}, 1, 0.5), -- Mouth 1
+	position_get_sphere({"air"}, {x = 0, y = -4, z = 6}, 1, 0.5), -- Mouth 2
+})
+local nodes_air_segment = nodes_get_mixed({
+	position_get_sphere({"air"}, {x = 0, y = -1, z = 0}, 2, 0.125),
+})
 
 -- Layer definitions
 local layer_body = {}
 local layer_flesh = {}
 local layer_air = {}
-layer_add(layer_body, 1, shapes_body_head)
-layer_add(layer_body, 12, shapes_body_segment)
-layer_add(layer_body, 3, shapes_body_tail)
-layer_add(layer_flesh, 1, shapes_flesh_head)
-layer_add(layer_flesh, 12, shapes_flesh_segment)
-layer_add(layer_air, 1, shapes_air_head)
-layer_add(layer_air, 12, shapes_air_segment)
+layer_add(layer_body, 1, nodes_body_head)
+layer_add(layer_body, 12, nodes_body_segment)
+layer_add(layer_body, 3, nodes_body_tail)
+layer_add(layer_flesh, 1, nodes_flesh_head)
+layer_add(layer_flesh, 12, nodes_flesh_segment)
+layer_add(layer_air, 1, nodes_air_head)
+layer_add(layer_air, 12, nodes_air_segment)
 
-snake.register_node("snake_default:snake_flesh", false, {
+snake.register_node("snake_default:snake_flesh", {
 	description = "Snake flesh",
 	tiles = {"default_silver_sand.png"},
 	paramtype2 = "facedir",
@@ -72,7 +91,7 @@ snake.register_node("snake_default:snake_flesh", false, {
 	sounds = default.node_sound_dirt_defaults(),
 })
 
-snake.register_node("snake_default:snake_body", false, {
+snake.register_node("snake_default:snake_body", {
 	description = "Snake body",
 	tiles = {"default_silver_sandstone_brick.png"},
 	paramtype2 = "facedir",
@@ -83,7 +102,7 @@ snake.register_node("snake_default:snake_body", false, {
 	sounds = default.node_sound_dirt_defaults(),
 })
 
-snake.register_node("snake_default:snake_heart", true, {
+snake.register_root("snake_default:snake_heart", {
 	description = "Snake heart",
 	tiles = {
 		"default_furnace_top.png", "default_furnace_bottom.png",

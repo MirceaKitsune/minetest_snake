@@ -6,12 +6,7 @@ A customizable node based snake that moves around. Spawn one, place an objective
 
 The mod works by having a single root node representing the head / heart / engine move around the world and remember its previous positions to form a chain, filling each link in this chain with spheres to draw a cordon across its path. Changes are written to the map each time the structure moves or updates in place after all calculations have been preformed in the voxel manipulator object. Since a lot of node changes and collision calculations are preformed internally, it's best to use small radiuses with short chains and decrease the update rate the larger the structure is. The following properties must be configured on the root node:
 
-  - `layers`: A list containing sphere shape instructions for each segment at this position in the chain.
-    - `shapes`: Each entry must be a list containing sphere shape instructions for each segment in the chain. Each entry must be an object containing the following parameters:
-      - `position`: Offset of this shape relative to its chain link. For example `{x = 0, y = -1, z = 2}` will position the sphere one node lower and two nodes in front of where the root node is facing. Use this to create more complex forms such as nose / eyes / etc. Shapes will be roated around this point, the center acts as the equivalent of an armature joint, account for bending before moving too far.
-      - `radius`: The radius that determines how large the sphere for this segment is. This value represents the number of nodes from the center, for example 4 means a 9 node wide sphere (-4 to 4 including 0).
-      - `roundness`: Blends between the shape of a sphere and that of a square to make the sphere more bulky. 0 makes spheres as round as possible, 0.25 and below is recommended for rounded shapes, 0.5 and above will draw squares with rounded edges, 1 produces squares instead of spheres.
-      - `nodes`: A list of nodes to pick from when filling this shape. At least one node must be listed for example `{"snake:snake_body"}`. If more than one node exists one is randomly picked each time a sphere is drawn, you can include the same node multiple times to increase its probability.
+  - `layers`: A list containing a node list for every segment at this position in the chain. Layers are drawn in an orderly fashion to create the final shape, with later layers carving new nodes through the nodes drawn by former layers: The first layer is expected to be the largest and longest encompassing the exterior of the structure, the system uses its data to clear nodes during updates and detect movable items. Each node is represented by a position and name, use helper functions to generate the final list. Example of an unpacked layers definition: `{{{{x = 0, y = -1, z = 2, name = "snake:snake_body"}, next_node}, next_link}, next_layer}`.
   - `radius`: Must represent the radius of the largest shape in any layer as closely as possible. Used in pathfinding and collision detection, too low values may cause snakes to cut through one another.
   - `time_min`: Minimum number of seconds before an update or movement is preformed.
   - `time_max`: Maximum number of seconds before an update or movement is preformed, the timer is constant if equal to the minimum value or random if this is set higher.
@@ -27,17 +22,13 @@ The mod works by having a single root node representing the head / heart / engin
   - `nodes_clear`: The list of nodes representing empty spaces. Pathfinding will only accept routes that traverse nodes listed here, also used to fill the area left behind by the snake and detect movable items inside the structure. This will usually be `{"air"}` but if the snake is meant to move through water using `{"default:water_source"}` is more appropriate. Only use a non-solid node representing the medium this snake moves through, walkable nodes may cause pathfinding to fail!
   - `nodes_moves`: Nodes located inside the snake will be moved with it as it navigates, only works if the item is in a node listed under `nodes_clear`. Nodes and groups not set here will instead be erased when the structure passes over them. Don't add nodes belonging to the snake in this group which may produce an infinite trail of nodes!
   - `nodes_goal`: The snake looks for nodes of this type when picking a target to walk toward.
-  - `nodes_goal_wield`: The snake will follow players wielding any of the items listed here, if "" is included the snake also follows players that aren't holding anything.
+  - `nodes_goal_wield`: The snake will follow players wielding any of the items listed here, if `""` is included the snake also follows players that aren't holding anything.
 
-All snake nodes should be registered using `snake.register_node` with the root node enabling the root boolean, the function expects the above entries but automatically assigns the root functions described below. The following groups are also assigned and may be used to detect snake nodes: `"snake"` for all nodes used by a snake structure, `"snake_root"` to describe the root node.
+All snake nodes should be registered using the functions described below. The following groups are assigned and may be used to detect snake nodes: `"snake"` for all nodes used by a snake, `"snake_root"` to describe the root node.
 
-  - `on_timer`: Must be set to `snake_timer`.
-  - `on_construct`: Must be set to `snake_construct`.
-  - `on_destruct`: Must be set to `snake_destruct`.
-  - `on_blast`: Must be set to `snake_destruct`.
-
-Layer ordering and usage: Layers are drawn in order to create the final shape, with later layers carving new nodes through the nodes drawn by former layers. The first layer is thus expected to be the largest and longest encompassing the exterior of the structure, the last should be the smallest and will usually contain air: The system uses their data to clear the structure during updates and detect movable items. The first link in each layer is the root node and the last will be the tail: The first shape of the first link in the first layer should represent the head size and is used in pathfinding.
-
-Example of a packed layer definition, use variables or helper functions to simplify and repeat shapes. The first level the layer list, second level is the list of shapes that layer be draw per chain link, the third level is the list containing the objects for each shape to be drawn at that link by the layer.
-
-`layers = {{{{offset = {x = 0, y = 0, z = 0}, radius = 4, roundness = 0.25, nodes = {"snake:snake_body"}}, next_shape}, next_link}, next_layer}`
+  - `snake.register_node`: For registering body nodes other than the root node.
+  - `snake.register_root`: For registering the root node, automatically assigns the following builtin functions:
+    - `on_timer`: Must be set to `snake_timer`.
+    - `on_construct`: Must be set to `snake_construct`.
+    - `on_destruct`: Must be set to `snake_destruct`.
+    - `on_blast`: Must be set to `snake_destruct`.

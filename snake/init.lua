@@ -1,34 +1,6 @@
 -- Snake mod by MirceaKitsune
 snake = {}
-
--- Generates and returns the list of sphere positions for the given radius and hardness centered around the given position
--- Each sphere shape is generated once and cached to avoid recalculating it per call
 snake.position_dirs = {{x = -1, y = 0, z = 0}, {x = 1, y = 0, z = 0}, {x = 0, y = 0, z = -1}, {x = 0, y = 0, z = 1}}
-snake.position_cache_sphere = {}
-snake.position_get_sphere = function(pos, radius, hardness)
-	if radius == 0 then return pos end
-
-	local i = minetest.serialize({radius, hardness})
-	if snake.position_cache_sphere[i] == nil then
-		snake.position_cache_sphere[i] = {}
-		for x = -radius, radius do
-			for y = -radius, radius do
-				for z = -radius, radius do
-					local pos = vector.new(x, y, z)
-					if hardness >= 1 or vector.distance(pos, vector.zero()) <= radius * (1 + hardness) then
-						table.insert(snake.position_cache_sphere[i], pos)
-					end
-				end
-			end
-		end
-	end
-
-	local positions = {}
-	for _, p in pairs(snake.position_cache_sphere[i]) do
-		table.insert(positions, vector.add(pos, p))
-	end
-	return positions
-end
 
 -- Returns the position of a facedir rotated offset added to pos
 function snake.position_rotated(pos, ofs, dir)
@@ -75,25 +47,21 @@ end
 -- Each node is only listed once to avoid duplicates and improve drawing performance, if the name list isn't empty it replaces the name read from the shape definition
 -- The chain contains a list of positions each shape will be centered to, the layer contains lists of shapes with each list drawn at the appropriate link in the chain
 function snake.node_shape(chain, layer, name)
-	local positions = {}
+	local nodes = {}
 	for i = 1, math.min(#chain, #layer) do
-		for _, shape in ipairs(layer[i]) do
-			local center = snake.position_rotated(chain[i], shape.position, -minetest.facedir_to_dir(chain[i].param2))
-			local sphere = snake.position_get_sphere(center, shape.radius, shape.roundness)
-			for _, p1 in ipairs(sphere) do
-				local has = false
-				for _, p2 in ipairs(positions) do
-					has = vector.equals(p1, p2)
-					if has then break end
-				end
-				if not has then
-					local n = #name > 0 and snake.node_random(name) or snake.node_random(shape.nodes)
-					table.insert(positions, {x = p1.x, y = p1.y, z = p1.z, name = n, param2 = 0})
-				end
+		local dir = -minetest.facedir_to_dir(chain[i].param2)
+		for _, n1 in ipairs(layer[i]) do
+			local n_pos = snake.position_rotated(chain[i], n1, dir)
+			local n_name = #name > 0 and snake.node_random(name) or snake.node_random(n1.name)
+			local has = false
+			for _, n2 in ipairs(nodes) do
+				has = vector.equals(n_pos, n2)
+				if has then break end
 			end
+			if not has then table.insert(nodes, {x = n_pos.x, y = n_pos.y, z = n_pos.z, name = n_name, param2 = chain[i].param2}) end
 		end
 	end
-	return positions
+	return nodes
 end
 
 function snake.timer(pos)
@@ -122,14 +90,14 @@ function snake.timer(pos)
 		local bbox_min = vector.copy(pos)
 		local bbox_max = vector.copy(pos)
 		for _, layer in ipairs(def.layers) do
-			for _, shapes in ipairs(layer) do
-				for _, shape in ipairs(shapes) do
-					local max_radius = shape.radius + math.max(math.abs(shape.position.x), math.abs(shape.position.y), math.abs(shape.position.z))
+			for _, nodes in ipairs(layer) do
+				for _, node in ipairs(nodes) do
+					local max_radius = math.max(math.abs(node.x), math.abs(node.y), math.abs(node.z))
 					if max_radius > bbox_dist then bbox_dist = max_radius end
 				end
 			end
 		end
-		for _, p in ipairs(chain) do
+		for _, p in ipairs(#chain > 0 and chain or {pos_root}) do
 			if p.x - bbox_dist - 1 < bbox_min.x then bbox_min.x = p.x - bbox_dist - 1 end
 			if p.y - bbox_dist - 1 < bbox_min.y then bbox_min.y = p.y - bbox_dist - 1 end
 			if p.z - bbox_dist - 1 < bbox_min.z then bbox_min.z = p.z - bbox_dist - 1 end
@@ -216,7 +184,7 @@ function snake.timer(pos)
 		-- Preform node changes if the root node has moved or spawned, clear nodes from the old chain and draw new ones to the new chain
 		-- The system expects the first layer to be the largest, used to generate the shells from which nodes are cleared or movable items detected
 		-- Node content and vector positions are mixed to make search and replace operations efficient, each node is represented as {x, y, z, name, param2}
-		if #chain <= 1 or node.param2 ~= pos_root.param2 or not vector.equals(pos, pos_root) then
+		if #chain == 0 or node.param2 ~= pos_root.param2 or not vector.equals(pos, pos_root) then
 			-- Store the outer shells of the old and new shapes using clear nodes then update the chain
 			-- If the head moved add its new position and remove links larger than the maximum length, if it only rotated update its entry instead
 			local shape_old = snake.node_shape(chain, def.layers[1], def.nodes_clear)
@@ -306,9 +274,7 @@ end
 function snake.construct(pos)
 	local node = minetest.get_node(pos)
 	local meta = minetest.get_meta(pos)
-	local dir = snake.position_dirs[math.random(#snake.position_dirs)]
-	local pos_root = {x = pos.x, y = pos.y, z = pos.z, param2 = minetest.dir_to_facedir(dir)}
-	meta:set_string("chain", minetest.serialize({pos_root}))
+	meta:set_string("chain", minetest.serialize({}))
 	meta:set_string("path", minetest.serialize({}))
 	minetest.get_node_timer(pos):start(0)
 end
@@ -317,14 +283,17 @@ function snake.destruct(pos)
 	minetest.get_node_timer(pos):stop()
 end
 
-function snake.register_node(name, root, data)
+function snake.register_node(name, data)
 	data.groups.snake = 1
-	if root then
-		data.groups.snake_root = 1
-		data.on_timer = snake.timer
-		data.on_construct = snake.construct
-		data.on_destruct = snake.destruct
-		data.on_blast = snake.destruct
-	end
+	minetest.register_node(name, data)
+end
+
+function snake.register_root(name, data)
+	data.groups.snake = 1
+	data.groups.snake_root = 1
+	data.on_timer = snake.timer
+	data.on_construct = snake.construct
+	data.on_destruct = snake.destruct
+	data.on_blast = snake.destruct
 	minetest.register_node(name, data)
 end
