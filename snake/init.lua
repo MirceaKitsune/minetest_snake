@@ -5,16 +5,11 @@ snake.dir4 = {{x = -1, y = 0, z = 0}, {x = 1, y = 0, z = 0}, {x = 0, y = 0, z = 
 snake.dir6 = {{x = -1, y = 0, z = 0}, {x = 1, y = 0, z = 0}, {x = 0, y = -1, z = 0}, {x = 0, y = 1, z = 0}, {x = 0, y = 0, z = -1}, {x = 0, y = 0, z = 1}}
 
 -- Returns the position of a facedir rotated offset added to pos
-function snake.rotated(pos, ofs, dir)
+function snake.node_rotated(pos, ofs, dir)
 	local dir_up = {x = -dir.y, y = math.max(math.abs(dir.x), math.abs(dir.z)), z = 0}
 	local rot = vector.dir_to_rotation(dir, dir_up)
 	local offset = vector.round(vector.rotate(ofs, rot))
 	return vector.add(pos, offset)
-end
-
--- Returns a random entry from a list of nodes
-function snake.node_random(nodes)
-	return nodes[math.random(#nodes)]
 end
 
 -- Checks whether a node name either has the same name or is part of the same group as a list of nodes
@@ -58,11 +53,11 @@ function snake.shapes_set(name)
 				local facedir = minetest.dir_to_facedir(-vector.new(dir))
 				snake.shapes[name][l][i][facedir] = {}
 				for _, node in ipairs(nodes) do
-					local hash = minetest.hash_node_position(node)
+					local pos = snake.node_rotated(vector.zero(), node, dir)
+					local hash = minetest.hash_node_position(pos)
 					if nodes_hash[hash] == nil then
 						nodes_hash[hash] = node.name
-						local pos = snake.rotated(vector.zero(), node, dir)
-						table.insert(snake.shapes[name][l][i][facedir], {x = pos.x, y = pos.y, z = pos.z, name = node.name, param2 = facedir})
+						table.insert(snake.shapes[name][l][i][facedir], {x = pos.x, y = pos.y, z = pos.z, name = node.name})
 					end
 				end
 			end
@@ -82,9 +77,9 @@ function snake.shapes_get(name, l, chain, names)
 		local shape = layer[i][facedir]
 		for _, n in ipairs(shape) do
 			local n_pos = vector.add(chain[i], n)
-			local n_name = #names > 0 and snake.node_random(names) or snake.node_random(n.name)
 			local hash = minetest.hash_node_position(n_pos)
 			if nodes_hash[hash] == nil then
+				local n_name = names ~= nil and names[#names] or n.name[#n.name]
 				nodes_hash[hash] = n_name
 				table.insert(nodes, {x = n_pos.x, y = n_pos.y, z = n_pos.z, name = n_name, param2 = facedir})
 			end
@@ -93,7 +88,7 @@ function snake.shapes_get(name, l, chain, names)
 	return nodes
 end
 
-function snake.timer(pos)
+function snake.root_timer(pos)
 	local node = minetest.get_node(pos)
 	local meta = minetest.get_meta(pos)
 	local def = minetest.registered_nodes[node.name]
@@ -145,7 +140,7 @@ function snake.timer(pos)
 				end
 			end
 
-			local pos_start = snake.rotated(pos_root, def.position_eye, -minetest.facedir_to_dir(pos_root.param2))
+			local pos_start = snake.node_rotated(pos_root, def.position_eye, -minetest.facedir_to_dir(pos_root.param2))
 			for _, target in ipairs(targets) do
 				local pos_end = vector.add(target, {x = 0, y = 1, z = 0})
 				local dist = vector.distance(pos_start, pos_end)
@@ -245,7 +240,7 @@ function snake.timer(pos)
 			end
 
 			for l = 1, #def.layers do
-				local shape = snake.shapes_get(def.name, l, chain, {})
+				local shape = snake.shapes_get(def.name, l, chain, nil)
 				for _, p in ipairs(shape) do
 					vm:set_node_at(p, {name = p.name, param2 = p.param2})
 				end
@@ -301,7 +296,7 @@ function snake.timer(pos)
 	minetest.get_node_timer(pos_root):start(timer)
 end
 
-function snake.construct(pos)
+function snake.root_construct(pos)
 	local node = minetest.get_node(pos)
 	local meta = minetest.get_meta(pos)
 	meta:set_string("chain", minetest.serialize({}))
@@ -309,7 +304,29 @@ function snake.construct(pos)
 	minetest.get_node_timer(pos):start(0)
 end
 
-function snake.destruct(pos)
+function snake.root_destruct(pos)
+	minetest.get_node_timer(pos):stop()
+end
+
+function snake.egg_timer(pos)
+	local node = minetest.get_node(pos)
+	local def = minetest.registered_nodes[node.name]
+	local name_spawn = def.nodes_root[math.random(#def.nodes_root)]
+	local def_spawn = minetest.registered_nodes[name_spawn]
+	local pos_spawn = vector.add(pos, {x = 0, y = def_spawn.height, z = 0})
+	local name_clear = def_spawn.nodes_clear[math.random(#def_spawn.nodes_clear)]
+	minetest.set_node(pos, {name = name_clear})
+	minetest.set_node(pos_spawn, {name = name_spawn})
+end
+
+function snake.egg_construct(pos)
+	local node = minetest.get_node(pos)
+	local def = minetest.registered_nodes[node.name]
+	local timer = def.time_min + math.random() * (def.time_max - def.time_min)
+	minetest.get_node_timer(pos):start(timer)
+end
+
+function snake.egg_destruct(pos)
 	minetest.get_node_timer(pos):stop()
 end
 
@@ -321,10 +338,19 @@ end
 function snake.register_root(name, data)
 	data.groups.snake = 1
 	data.groups.snake_root = 1
-	data.on_timer = snake.timer
-	data.on_construct = snake.construct
-	data.on_destruct = snake.destruct
-	data.on_blast = snake.destruct
+	data.on_timer = snake.root_timer
+	data.on_construct = snake.root_construct
+	data.on_destruct = snake.root_destruct
+	data.on_blast = snake.root_destruct
 	minetest.register_node(name, data)
 	snake.shapes_set(name)
+end
+
+function snake.register_egg(name, data)
+	data.groups.snake_egg = 1
+	data.on_timer = snake.egg_timer
+	data.on_construct = snake.egg_construct
+	data.on_destruct = snake.egg_destruct
+	data.on_blast = snake.egg_destruct
+	minetest.register_node(name, data)
 end

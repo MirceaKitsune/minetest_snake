@@ -4,7 +4,7 @@ A customizable node based snake that moves around. Spawn one, place an objective
 
 ## API
 
-The mod works by having a single root node representing the head / heart / engine move around the world and remember its previous positions to form a chain, filling each link in this chain with spheres to draw a cordon across its path. Changes are written to the map each time the structure moves or updates in place after all calculations have been preformed in the voxel manipulator object. Since a lot of node changes and collision calculations are preformed internally, it's best to use small radiuses with short chains and decrease the update rate the larger the structure is. The following properties must be configured on the root node:
+The mod works by having a single root node representing the head / heart / engine move around the world and store its previous positions to form a chain, filling each link in this chain with shapes to draw a cordon across its path. Changes are written to the map each time the structure moves or updates in place after all calculations have been preformed in the voxel manipulator. Since many node changes and collision calculations are preformed internally, it's best to use small shapes with short chains and decrease the update rate the larger the structure is. The following properties must be defined in the root node:
 
   - `layers`: A list containing a node list for every segment at this position in the chain. Layers are drawn in an orderly fashion to create the final shape, with later layers carving new nodes through the nodes drawn by former layers: The first layer is expected to be the largest and longest encompassing the exterior of the structure, the system uses its data to clear nodes during updates and detect movable items. Each node is represented by a position and name, use helper functions to generate the final list. Example of an unpacked layers definition: `{{{{x = 0, y = -1, z = 2, name = "snake:snake_body"}, next_node}, next_link}, next_layer}`.
   - `radius`: Must represent the radius of the largest shape in any layer as closely as possible. Used in pathfinding and collision detection, too low values may cause snakes to cut through one another.
@@ -24,11 +24,22 @@ The mod works by having a single root node representing the head / heart / engin
   - `nodes_goal`: The snake looks for nodes of this type when picking a target to walk toward.
   - `nodes_goal_wield`: The snake will follow players wielding any of the items listed here, if `""` is included the snake also follows players that aren't holding anything.
 
-All snake nodes must be registered using the functions described below, which automatically assign core variables and handle shape caching. The following groups are assigned and may be used to detect snake nodes: `"snake"` for all nodes used by a snake, `"snake_root"` to describe the root node.
+Egg nodes are made available to the player and can be placed on the ground to hatch a snake after a defined period of time. The following properties are set for egg nodes:
 
-  - `snake.register_node`: For registering body nodes other than the root node.
+  - `nodes_root`: The type of root node that will be spawned when this egg hatches. The root node is created at the `height` offset defined in its settings.
+  - `time_min`: Minimum number of seconds before the egg may hatch.
+  - `time_max`: Maximum number of seconds before the egg may hatch.
+
+All snake nodes must be registered using the functions described below, which automatically assign core variables and handle shape caching. The following groups are assigned and may be used to detect snake nodes: `"snake"` for all nodes making up the body of a snake, `"snake_root"` to describe the root node, `"snake_egg"` to describe egg nodes.
+
+  - `snake.register_node`: For registering body nodes that are created and destroyed as the snake moves.
   - `snake.register_root`: For registering the root node, automatically assigns the following builtin functions:
-    - `on_timer`: Must be set to `snake_timer`.
-    - `on_construct`: Must be set to `snake_construct`.
-    - `on_destruct`: Must be set to `snake_destruct`.
-    - `on_blast`: Must be set to `snake_destruct`.
+    - `on_timer`: Must be set to `snake.root_timer`.
+    - `on_construct`: Must be set to `snake.root_construct`.
+    - `on_destruct`: Must be set to `snake.root_destruct`.
+    - `on_blast`: Must be set to `snake.root_destruct`.
+  - `snake.register_egg`: For registering egg nodes, automatically assigns the following builtin functions:
+    - `on_timer`: Must be set to `snake.egg_timer`.
+    - `on_construct`: Must be set to `snake.egg_construct`.
+    - `on_destruct`: Must be set to `snake.egg_destruct`.
+    - `on_blast`: Must be set to `snake.egg_destruct`.

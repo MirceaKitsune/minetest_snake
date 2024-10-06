@@ -85,9 +85,7 @@ snake.register_node("snake_default:snake_flesh", {
 	tiles = {"default_silver_sand.png"},
 	paramtype2 = "facedir",
 	drawtype = "normal",
-	light_source = 0,
-	waving = 0,
-	groups = {not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
+	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
 	sounds = default.node_sound_dirt_defaults(),
 })
 
@@ -96,9 +94,7 @@ snake.register_node("snake_default:snake_body", {
 	tiles = {"default_silver_sandstone_brick.png"},
 	paramtype2 = "facedir",
 	drawtype = "normal",
-	light_source = 0,
-	waving = 0,
-	groups = {not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
+	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
 	sounds = default.node_sound_dirt_defaults(),
 })
 
@@ -112,8 +108,7 @@ snake.register_root("snake_default:snake_heart", {
 	paramtype2 = "facedir",
 	drawtype = "normal",
 	light_source = 12,
-	waving = 0,
-	groups = {oddly_breakable_by_hand = 1},
+	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
 	sounds = default.node_sound_stone_defaults(),
 
 	layers = {layer_body, layer_flesh, layer_air},
@@ -130,7 +125,36 @@ snake.register_root("snake_default:snake_heart", {
 	sight_max = 64,
 	goal_climb = 16,
 	nodes_clear = {"air"},
-	nodes_moves = {"group:choppy", "group:snappy", "group:attached_node"},
+	nodes_moves = {"group:snappy", "group:attached_node"},
 	nodes_goal = {"default:meselamp"},
 	nodes_goal_wield = {"default:meselamp"},
+})
+
+snake.register_egg("snake_default:snake_egg", {
+	description = "Snake egg",
+	tiles = {"default_snow.png"},
+	paramtype = "light",
+	drawtype = "nodebox",
+	inventory_image = "default_snowball.png",
+	wield_image = "default_snowball.png",
+	buildable_to = true,
+	floodable = true,
+	node_box = {
+		type = "fixed",
+		fixed = {
+			{-0.375, -0.5, -0.375, 0.375, 0.5, 0.375},
+		},
+	},
+	collision_box = {
+		type = "fixed",
+		fixed = {
+			{-0.375, -0.5, -0.375, 0.375, 0.5, 0.375},
+		},
+	},
+	groups = {fleshy = 1, crumbly = 1, oddly_breakable_by_hand = 1},
+	sounds = default.node_sound_stone_defaults(),
+
+	nodes_root = {"snake_default:snake_heart"},
+	time_min = 5,
+	time_max = 10,
 })
