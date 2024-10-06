@@ -19,15 +19,15 @@ end
 
 -- Returns a combined list of nodes removing duplicates
 function nodes_get_mixed(list)
+	local nodes_hash = {}
 	local nodes = {}
 	for _, nodes_list in ipairs(list) do
-		for _, n1 in ipairs(nodes_list) do
-			local has = false
-			for _, n2 in ipairs(nodes) do
-				has = vector.equals(n1, n2)
-				if has then break end
+		for _, n in ipairs(nodes_list) do
+			local hash = minetest.hash_node_position(n)
+			if nodes_hash[hash] == nil then
+				nodes_hash[hash] = n.name
+				table.insert(nodes, {x = n.x, y = n.y, z = n.z, name = n.name})
 			end
-			if not has then table.insert(nodes, {x = n1.x, y = n1.y, z = n1.z, name = n1.name}) end
 		end
 	end
 	return nodes

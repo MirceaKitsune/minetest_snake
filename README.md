@@ -24,7 +24,7 @@ The mod works by having a single root node representing the head / heart / engin
   - `nodes_goal`: The snake looks for nodes of this type when picking a target to walk toward.
   - `nodes_goal_wield`: The snake will follow players wielding any of the items listed here, if `""` is included the snake also follows players that aren't holding anything.
 
-All snake nodes should be registered using the functions described below. The following groups are assigned and may be used to detect snake nodes: `"snake"` for all nodes used by a snake, `"snake_root"` to describe the root node.
+All snake nodes must be registered using the functions described below, which automatically assign core variables and handle shape caching. The following groups are assigned and may be used to detect snake nodes: `"snake"` for all nodes used by a snake, `"snake_root"` to describe the root node.
 
   - `snake.register_node`: For registering body nodes other than the root node.
   - `snake.register_root`: For registering the root node, automatically assigns the following builtin functions:

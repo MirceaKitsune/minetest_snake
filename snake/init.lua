@@ -1,9 +1,11 @@
 -- Snake mod by MirceaKitsune
 snake = {}
-snake.position_dirs = {{x = -1, y = 0, z = 0}, {x = 1, y = 0, z = 0}, {x = 0, y = 0, z = -1}, {x = 0, y = 0, z = 1}}
+snake.shapes = {}
+snake.dir4 = {{x = -1, y = 0, z = 0}, {x = 1, y = 0, z = 0}, {x = 0, y = 0, z = -1}, {x = 0, y = 0, z = 1}}
+snake.dir6 = {{x = -1, y = 0, z = 0}, {x = 1, y = 0, z = 0}, {x = 0, y = -1, z = 0}, {x = 0, y = 1, z = 0}, {x = 0, y = 0, z = -1}, {x = 0, y = 0, z = 1}}
 
 -- Returns the position of a facedir rotated offset added to pos
-function snake.position_rotated(pos, ofs, dir)
+function snake.rotated(pos, ofs, dir)
 	local dir_up = {x = -dir.y, y = math.max(math.abs(dir.x), math.abs(dir.z)), z = 0}
 	local rot = vector.dir_to_rotation(dir, dir_up)
 	local offset = vector.round(vector.rotate(ofs, rot))
@@ -43,22 +45,49 @@ function snake.node_find(vm, nodes, names, objects)
 	return nodes_new
 end
 
--- Generates a shape from the given chain and layer data, returns a list of positions with name and param2 in the format {x, y, z, name, param2}
--- Each node is only listed once to avoid duplicates and improve drawing performance, if the name list isn't empty it replaces the name read from the shape definition
--- The chain contains a list of positions each shape will be centered to, the layer contains lists of shapes with each list drawn at the appropriate link in the chain
-function snake.node_shape(chain, layer, name)
-	local nodes = {}
-	for i = 1, math.min(#chain, #layer) do
-		local dir = -minetest.facedir_to_dir(chain[i].param2)
-		for _, n1 in ipairs(layer[i]) do
-			local n_pos = snake.position_rotated(chain[i], n1, dir)
-			local n_name = #name > 0 and snake.node_random(name) or snake.node_random(n1.name)
-			local has = false
-			for _, n2 in ipairs(nodes) do
-				has = vector.equals(n_pos, n2)
-				if has then break end
+-- Caches the nodes of every shape for all possible facedir rotations, the code uses this to avoid rotating nodes in realtime
+-- Storage order: Name, layer, shape, facedir
+function snake.shapes_set(name)
+	snake.shapes[name] = {}
+	for l, layer in ipairs(minetest.registered_nodes[name].layers) do
+		snake.shapes[name][l] = {}
+		for i, nodes in ipairs(layer) do
+			snake.shapes[name][l][i] = {}
+			for _, dir in ipairs(snake.dir6) do
+				local nodes_hash = {}
+				local facedir = minetest.dir_to_facedir(-vector.new(dir))
+				snake.shapes[name][l][i][facedir] = {}
+				for _, node in ipairs(nodes) do
+					local hash = minetest.hash_node_position(node)
+					if nodes_hash[hash] == nil then
+						nodes_hash[hash] = node.name
+						local pos = snake.rotated(vector.zero(), node, dir)
+						table.insert(snake.shapes[name][l][i][facedir], {x = pos.x, y = pos.y, z = pos.z, name = node.name, param2 = facedir})
+					end
+				end
 			end
-			if not has then table.insert(nodes, {x = n_pos.x, y = n_pos.y, z = n_pos.z, name = n_name, param2 = chain[i].param2}) end
+		end
+	end
+end
+
+-- Returns a shape for the given chain and layer data as a list of positions with name and param2 in the format {x, y, z, name, param2}
+-- The chain contains a list of positions each shape will be centered to, if the name list isn't empty it replaces the name read from the shape definition
+function snake.shapes_get(name, l, chain, names)
+	local nodes_hash = {}
+	local nodes = {}
+	local layer = snake.shapes[name][l]
+	for i = 1, math.min(#chain, #layer) do
+		local facedir = chain[i].param2
+		local dir = -minetest.facedir_to_dir(facedir)
+		local shape = layer[i][facedir]
+		for _, n in ipairs(shape) do
+			local n_pos = vector.add(chain[i], n)
+			local n_name = #names > 0 and snake.node_random(names) or snake.node_random(n.name)
+			local hash = minetest.hash_node_position(n_pos)
+			if nodes_hash[hash] == nil then
+				nodes_hash[hash] = n_name
+				table.insert(nodes, {x = n_pos.x, y = n_pos.y, z = n_pos.z, name = n_name, param2 = facedir})
+			end
 		end
 	end
 	return nodes
@@ -116,7 +145,7 @@ function snake.timer(pos)
 				end
 			end
 
-			local pos_start = snake.position_rotated(pos_root, def.position_eye, -minetest.facedir_to_dir(pos_root.param2))
+			local pos_start = snake.rotated(pos_root, def.position_eye, -minetest.facedir_to_dir(pos_root.param2))
 			for _, target in ipairs(targets) do
 				local pos_end = vector.add(target, {x = 0, y = 1, z = 0})
 				local dist = vector.distance(pos_start, pos_end)
@@ -173,7 +202,7 @@ function snake.timer(pos)
 		-- Decide if to turn the head in a random direction, avoid looking back into self by discarding offsets that match the second chain position
 		if def.chance_look >= math.random() then
 			local dirs = {}
-			for _, dir in ipairs(snake.position_dirs) do
+			for _, dir in ipairs(snake.dir4) do
 				if #chain <= 1 or not vector.equals(vector.subtract(pos, dir), chain[2]) then
 					table.insert(dirs, dir)
 				end
@@ -187,7 +216,7 @@ function snake.timer(pos)
 		if #chain == 0 or node.param2 ~= pos_root.param2 or not vector.equals(pos, pos_root) then
 			-- Store the outer shells of the old and new shapes using clear nodes then update the chain
 			-- If the head moved add its new position and remove links larger than the maximum length, if it only rotated update its entry instead
-			local shape_old = snake.node_shape(chain, def.layers[1], def.nodes_clear)
+			local shape_old = snake.shapes_get(def.name, 1, chain, def.nodes_clear)
 			if vector.equals(pos, pos_root) then
 				chain[1] = pos_root
 			else
@@ -196,7 +225,7 @@ function snake.timer(pos)
 					table.remove(chain, #chain)
 				end
 			end
-			local shape_new = snake.node_shape(chain, def.layers[1], def.nodes_clear)
+			local shape_new = snake.shapes_get(def.name, 1, chain, def.nodes_clear)
 
 			-- Item movement: Store nodes and objects inside the shell that may need to be moved, nodes are stored as {x, y, z, name, param2} and objects as {x, y, z, obj}
 			local nodes_move = {}
@@ -214,8 +243,9 @@ function snake.timer(pos)
 			for _, p in ipairs(shape_old) do
 				vm:set_node_at(p, {name = p.name, param2 = p.param2})
 			end
-			for _, layer in pairs(def.layers) do
-				local shape = snake.node_shape(chain, layer, {})
+
+			for l = 1, #def.layers do
+				local shape = snake.shapes_get(def.name, l, chain, {})
 				for _, p in ipairs(shape) do
 					vm:set_node_at(p, {name = p.name, param2 = p.param2})
 				end
@@ -296,4 +326,5 @@ function snake.register_root(name, data)
 	data.on_destruct = snake.destruct
 	data.on_blast = snake.destruct
 	minetest.register_node(name, data)
+	snake.shapes_set(name)
 end
