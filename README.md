@@ -24,7 +24,7 @@ The mod works by having a single root node representing the head / heart / engin
   - `nodes_goal`: The snake looks for nodes of this type when picking a target to walk toward.
   - `nodes_goal_wield`: The snake will follow players wielding any of the items listed here, if `""` is included the snake also follows players that aren't holding anything.
 
-Egg nodes are made available to the player and can be placed on the ground to hatch a snake after a defined period of time. The following properties are set for egg nodes:
+Egg nodes are made available to the player and can be placed on the ground to hatch a snake after a defined period of time. The root node will only be activated when placed by an egg, placing it manually will result in a standard node. The following properties are set for egg nodes:
 
   - `nodes_root`: The type of root node that will be spawned when this egg hatches. The root node is created at the `height` offset defined in its settings.
   - `time_min`: Minimum number of seconds before the egg may hatch.
@@ -43,3 +43,11 @@ All snake nodes must be registered using the functions described below, which au
     - `on_construct`: Must be set to `snake.egg_construct`.
     - `on_destruct`: Must be set to `snake.egg_destruct`.
     - `on_blast`: Must be set to `snake.egg_destruct`.
+
+The API offers a shape library to facilitate drawing multiple nodes as part of the `snake.draw` object, containing optional helper functions mods can use to automate certain operations and node shapes. Draw functions include:
+
+  - `snake.draw.single(name, pos)`: Returns a single node wrapped in a list.
+  - `snake.draw.fill(name, pos_min, pos_max)`: Returns the list of nodes filling the given area.
+  - `snake.draw.round(name, pos, radius, hardness)`: Returns the list of nodes in an area for the given radius and hardness. If hardness is 0 this will be a fully round sphere, if 1 a cube is returned instead.
+  - `snake.draw.add(nodes_list)`: Returns the combined result of the provided node lists with duplicate entries discarded. Nodes set first have priority, later nodes at the same position will be ignored.
+  - `snake.draw.subtract(nodes_add, nodes_sub)`: Returns the first list of nodes without entries in the second list. The names of nodes in the subtraction list are ignored as only positions are relevant.

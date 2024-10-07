@@ -44,11 +44,11 @@ end
 -- Storage order: Name, layer, shape, facedir
 function snake.shapes_set(name)
 	snake.shapes[name] = {}
-	for l, layer in ipairs(minetest.registered_nodes[name].layers) do
+	for l, layer in pairs(minetest.registered_nodes[name].layers) do
 		snake.shapes[name][l] = {}
-		for i, nodes in ipairs(layer) do
+		for i, nodes in pairs(layer) do
 			snake.shapes[name][l][i] = {}
-			for _, dir in ipairs(snake.dir6) do
+			for _, dir in pairs(snake.dir6) do
 				local nodes_hash = {}
 				local facedir = minetest.dir_to_facedir(-vector.new(dir))
 				snake.shapes[name][l][i][facedir] = {}
@@ -75,7 +75,7 @@ function snake.shapes_get(name, l, chain, names)
 		local facedir = chain[i].param2
 		local dir = -minetest.facedir_to_dir(facedir)
 		local shape = layer[i][facedir]
-		for _, n in ipairs(shape) do
+		for _, n in pairs(shape) do
 			local n_pos = vector.add(chain[i], n)
 			local hash = minetest.hash_node_position(n_pos)
 			if nodes_hash[hash] == nil then
@@ -226,19 +226,15 @@ function snake.root_timer(pos)
 			local nodes_move = {}
 			local nodes = snake.node_find(vm, shape_old, def.nodes_moves, true)
 			for _, p in ipairs(nodes) do
-				if p.name ~= nil then
-					local m = minetest.get_meta(p)
-					p.meta = m:to_table()
-					m:from_table(nil)
-				end
+				if p.name ~= nil then p.meta = minetest.get_meta(p):to_table() end
 				table.insert(nodes_move, p)
 			end
 
 			-- Clear nodes from the old chain and redraw the shape, layers are drawn in order so that each carves through the shape of the previous layer
 			for _, p in ipairs(shape_old) do
 				vm:set_node_at(p, {name = p.name, param2 = p.param2})
+				minetest.get_meta(p):from_table(nil)
 			end
-
 			for l = 1, #def.layers do
 				local shape = snake.shapes_get(def.name, l, chain, nil)
 				for _, p in ipairs(shape) do
@@ -301,7 +297,7 @@ function snake.root_construct(pos)
 	local meta = minetest.get_meta(pos)
 	meta:set_string("chain", minetest.serialize({}))
 	meta:set_string("path", minetest.serialize({}))
-	minetest.get_node_timer(pos):start(0)
+	minetest.get_node_timer(pos):stop()
 end
 
 function snake.root_destruct(pos)
@@ -317,6 +313,7 @@ function snake.egg_timer(pos)
 	local name_clear = def_spawn.nodes_clear[math.random(#def_spawn.nodes_clear)]
 	minetest.set_node(pos, {name = name_clear})
 	minetest.set_node(pos_spawn, {name = name_spawn})
+	minetest.get_node_timer(pos_spawn):start(0)
 end
 
 function snake.egg_construct(pos)
@@ -354,3 +351,6 @@ function snake.register_egg(name, data)
 	data.on_blast = snake.egg_destruct
 	minetest.register_node(name, data)
 end
+
+local snake_path = minetest.get_modpath("snake")
+dofile(snake_path .. "/draw.lua")
