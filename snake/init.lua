@@ -94,156 +94,159 @@ function snake.root_timer(pos)
 	local def = minetest.registered_nodes[node.name]
 	local pos_root = {x = pos.x, y = pos.y, z = pos.z, param2 = node.param2}
 
-	-- Only preform updates if a player is closer than the LOD range or LOD is disabled
-	local update = def.lod == 0
-	if not update then
-		for obj in minetest.objects_inside_radius(pos_root, def.lod) do
-			if obj:is_player() then
-				update = true
-				break
-			end
-		end
-	end
+	local chain = minetest.deserialize(meta:get_string("chain"))
+	local path = minetest.deserialize(meta:get_string("path"))
+	local health = meta:get_float("health")
 
-	if update then
-		local chain = minetest.deserialize(meta:get_string("chain"))
-		local path = minetest.deserialize(meta:get_string("path"))
-
-		-- Get the largest possible bounding box of the structure based on its chain and largest shape, create the voxel manipulator object for this area
-		local bbox_dist = 0
-		local bbox_min = vector.copy(pos)
-		local bbox_max = vector.copy(pos)
-		for _, layer in ipairs(def.layers) do
-			for _, nodes in ipairs(layer) do
-				for _, node in ipairs(nodes) do
-					local max_radius = math.max(math.abs(node.x), math.abs(node.y), math.abs(node.z))
-					if max_radius > bbox_dist then bbox_dist = max_radius end
+	if not chain or not path or health <= 0 then
+		minetest.remove_node(pos_root)
+	else
+		-- Only preform updates if health is at 1 and a player is closer than the LOD range or LOD is disabled
+		local update = def.lod == 0 and health >= 1
+		if def.lod ~= 0 and health >= 1 then
+			for obj in minetest.objects_inside_radius(pos_root, def.lod) do
+				if obj:is_player() then
+					update = true
+					break
 				end
 			end
 		end
-		for _, p in ipairs(#chain > 0 and chain or {pos_root}) do
-			if p.x - bbox_dist - 1 < bbox_min.x then bbox_min.x = p.x - bbox_dist - 1 end
-			if p.y - bbox_dist - 1 < bbox_min.y then bbox_min.y = p.y - bbox_dist - 1 end
-			if p.z - bbox_dist - 1 < bbox_min.z then bbox_min.z = p.z - bbox_dist - 1 end
-			if p.x + bbox_dist + 1 > bbox_max.x then bbox_max.x = p.x + bbox_dist + 1 end
-			if p.y + bbox_dist + 1 > bbox_max.y then bbox_max.y = p.y + bbox_dist + 1 end
-			if p.z + bbox_dist + 1 > bbox_max.z then bbox_max.z = p.z + bbox_dist + 1 end
-		end
-		local vm = minetest.get_voxel_manip(bbox_min, bbox_max)
 
-		-- Look for targets within the area defined by sight, travel from the eye position to the best goal determined by the pathfinder
-		if def.chance_path >= math.random() then
-			local targets = minetest.find_nodes_in_area(vector.subtract(pos_root, def.sight_max), vector.add(pos_root, def.sight_max), def.nodes_goal, false)
-			for obj in minetest.objects_inside_radius(pos_root, def.sight_max) do
-				if obj:is_player() and snake.node_in(obj:get_wielded_item():get_name(), def.nodes_goal_wield) then
-					table.insert(targets, vector.round(obj:get_pos()))
-				end
-			end
-
-			local pos_start = snake.node_rotated(pos_root, def.position_eye, -minetest.facedir_to_dir(pos_root.param2))
-			for _, target in ipairs(targets) do
-				local pos_end = vector.add(target, {x = 0, y = 1, z = 0})
-				local dist = vector.distance(pos_start, pos_end)
-				if dist >= def.sight_min and dist <= def.sight_max then
-					local path_new = {}
-					local path_get = minetest.find_path(pos_start, pos_end, def.goal_climb, def.goal_climb, def.goal_climb, nil) or {}
-					for _, p in pairs(path_get) do
-						local p_new = {x = p.x, y = p.y + def.height, z = p.z}
-						if snake.node_in(minetest.get_node(p_new).name, def.nodes_clear) then
-							table.insert(path_new, p_new)
-						else break end
-					end
-					if #path_new > 0 then
-						path = path_new
-						break
+		if update then
+			-- Get the largest possible bounding box of the structure based on its chain and largest shape, create the voxel manipulator object for this area
+			local bbox_dist = 0
+			local bbox_min = vector.copy(pos)
+			local bbox_max = vector.copy(pos)
+			for _, layer in ipairs(def.layers) do
+				for _, nodes in ipairs(layer) do
+					for _, node in ipairs(nodes) do
+						local max_radius = math.max(math.abs(node.x), math.abs(node.y), math.abs(node.z))
+						if max_radius > bbox_dist then bbox_dist = max_radius end
 					end
 				end
 			end
-		end
+			for _, p in ipairs(#chain > 0 and chain or {pos_root}) do
+				if p.x - bbox_dist - 1 < bbox_min.x then bbox_min.x = p.x - bbox_dist - 1 end
+				if p.y - bbox_dist - 1 < bbox_min.y then bbox_min.y = p.y - bbox_dist - 1 end
+				if p.z - bbox_dist - 1 < bbox_min.z then bbox_min.z = p.z - bbox_dist - 1 end
+				if p.x + bbox_dist + 1 > bbox_max.x then bbox_max.x = p.x + bbox_dist + 1 end
+				if p.y + bbox_dist + 1 > bbox_max.y then bbox_max.y = p.y + bbox_dist + 1 end
+				if p.z + bbox_dist + 1 > bbox_max.z then bbox_max.z = p.z + bbox_dist + 1 end
+			end
+			local vm = minetest.get_voxel_manip(bbox_min, bbox_max)
 
-		-- Move the root node one unit per turn toward the first path position, remove the position when close enough to proceed to the next one or clear the path if close to the final goal
-		-- The chains of other snakes are checked and radiuses compared, movement is paused if this snake could cut through another snake
-		-- Root position and chain links contain the vector position with the facedir direction in the format {x, y, z, param2}
-		if def.chance_move >= math.random() and #path > 0 then
-			local goal_dir = vector.round(vector.direction(pos, path[1]))
-			local goal_pos = vector.add(pos, goal_dir)
-			local roots = minetest.find_nodes_in_area(vector.subtract(pos_root, def.sight_max), vector.add(pos_root, def.sight_max), {"group:snake_root"}, false)
-			for _, p1 in ipairs(roots) do
-				if not vector.equals(pos_root, p1) then
-					local n = minetest.get_node(p1)
-					local m = minetest.get_meta(p1):to_table()
-					local c = minetest.deserialize(m.fields.chain)
-					for _, p2 in ipairs(c) do
-						local r = def.radius + minetest.registered_nodes[n.name].radius
-						if vector.distance(goal_pos, p2) <= r then goal_pos = nil end
-						if goal_pos == nil then break end
+			-- Look for targets within the area defined by sight, travel from the eye position to the best goal determined by the pathfinder
+			if def.chance_path >= math.random() then
+				local targets = minetest.find_nodes_in_area(vector.subtract(pos_root, def.sight_max), vector.add(pos_root, def.sight_max), def.nodes_goal, false)
+				for obj in minetest.objects_inside_radius(pos_root, def.sight_max) do
+					if obj:is_player() and snake.node_in(obj:get_wielded_item():get_name(), def.nodes_goal_wield) then
+						table.insert(targets, vector.round(obj:get_pos()))
 					end
 				end
-				if goal_pos == nil then break end
-			end
 
-			if goal_pos == nil then
-				pos_root.param2 = minetest.dir_to_facedir(-goal_dir, true)
-			else
-				pos_root = {x = goal_pos.x, y = goal_pos.y, z = goal_pos.z, param2 = minetest.dir_to_facedir(-goal_dir, true)}
-				if math.floor(vector.distance(pos_root, path[#path])) <= def.radius then
-					path = {}
-				elseif math.floor(vector.distance(pos_root, path[1])) <= def.radius then
-					table.remove(path, 1)
+				local pos_start = snake.node_rotated(pos_root, def.position_eye, -minetest.facedir_to_dir(pos_root.param2))
+				for _, target in ipairs(targets) do
+					local pos_end = vector.add(target, {x = 0, y = 1, z = 0})
+					local dist = vector.distance(pos_start, pos_end)
+					if dist >= def.sight_min and dist <= def.sight_max then
+						local path_new = {}
+						local path_get = minetest.find_path(pos_start, pos_end, def.goal_climb, def.goal_climb, def.goal_climb, nil) or {}
+						for _, p in pairs(path_get) do
+							local p_new = {x = p.x, y = p.y + def.height, z = p.z}
+							if snake.node_in(minetest.get_node(p_new).name, def.nodes_clear) then
+								table.insert(path_new, p_new)
+							else break end
+						end
+						if #path_new > 0 then
+							path = path_new
+							break
+						end
+					end
 				end
 			end
-		end
 
-		-- Decide if to turn the head in a random direction, avoid looking back into self by discarding offsets that match the second chain position
-		if def.chance_look >= math.random() then
-			local dirs = {}
-			for _, dir in ipairs(snake.dir4) do
-				if #chain <= 1 or not vector.equals(vector.subtract(pos, dir), chain[2]) then
-					table.insert(dirs, dir)
+			-- Move the root node one unit per turn toward the first path position, remove the position when close enough to proceed to the next one or clear the path if close to the final goal
+			-- The chains of other snakes are checked and radiuses compared, movement is paused if this snake could cut through another snake
+			-- Root position and chain links contain the vector position with the facedir direction in the format {x, y, z, param2}
+			if #path > 0 and def.chance_move >= math.random() then
+				local goal_dir = vector.round(vector.direction(pos, path[1]))
+				local goal_pos = vector.add(pos, goal_dir)
+				local roots = minetest.find_nodes_in_area(vector.subtract(pos_root, def.sight_max), vector.add(pos_root, def.sight_max), {"group:snake_root"}, false)
+				for _, p1 in ipairs(roots) do
+					if not vector.equals(pos_root, p1) then
+						local n = minetest.get_node(p1)
+						local m = minetest.get_meta(p1):to_table()
+						local c = minetest.deserialize(m.fields.chain)
+						for _, p2 in ipairs(c) do
+							local r = def.radius + minetest.registered_nodes[n.name].radius
+							if vector.distance(goal_pos, p2) <= r then goal_pos = nil end
+							if goal_pos == nil then break end
+						end
+					end
+					if goal_pos == nil then break end
+				end
+
+				if goal_pos == nil then
+					pos_root.param2 = minetest.dir_to_facedir(-goal_dir, true)
+				else
+					pos_root = {x = goal_pos.x, y = goal_pos.y, z = goal_pos.z, param2 = minetest.dir_to_facedir(-goal_dir, true)}
+					if math.floor(vector.distance(pos_root, path[#path])) <= def.radius then
+						path = {}
+					elseif math.floor(vector.distance(pos_root, path[1])) <= def.radius then
+						table.remove(path, 1)
+					end
 				end
 			end
-			pos_root.param2 = minetest.dir_to_facedir(dirs[math.random(#dirs)])
-		end
 
-		-- Preform node changes if the root node has moved or spawned, clear nodes from the old chain and draw new ones to the new chain
-		-- The system expects the first layer to be the largest, used to generate the shells from which nodes are cleared or movable items detected
-		-- Node content and vector positions are mixed to make search and replace operations efficient, each node is represented as {x, y, z, name, param2}
-		if #chain == 0 or node.param2 ~= pos_root.param2 or not vector.equals(pos, pos_root) then
-			-- Store the outer shells of the old and new shapes using clear nodes then update the chain
-			-- If the head moved add its new position and remove links larger than the maximum length, if it only rotated update its entry instead
-			local shape_old = snake.shapes_get(def.name, 1, chain, def.nodes_clear)
-			if vector.equals(pos, pos_root) then
-				chain[1] = pos_root
-			else
-				table.insert(chain, 1, pos_root)
-				while #chain > #def.layers[1] do
-					table.remove(chain, #chain)
+			-- Decide if to turn the head in a random direction, avoid looking back into self by discarding offsets that match the second chain position
+			if def.chance_look >= math.random() then
+				local dirs = {}
+				for _, dir in ipairs(snake.dir4) do
+					if #chain <= 1 or not vector.equals(vector.subtract(pos, dir), chain[2]) then
+						table.insert(dirs, dir)
+					end
 				end
-			end
-			local shape_new = snake.shapes_get(def.name, 1, chain, def.nodes_clear)
-
-			-- Item movement: Store nodes and objects inside the shell that may need to be moved, nodes are stored as {x, y, z, name, param2} and objects as {x, y, z, obj}
-			local nodes_move = {}
-			local nodes = snake.node_find(vm, shape_old, def.nodes_moves, true)
-			for _, p in ipairs(nodes) do
-				if p.name ~= nil then p.meta = minetest.get_meta(p):to_table() end
-				table.insert(nodes_move, p)
+				pos_root.param2 = minetest.dir_to_facedir(dirs[math.random(#dirs)])
 			end
 
-			-- Clear nodes from the old chain and redraw the shape, layers are drawn in order so that each carves through the shape of the previous layer
-			for _, p in ipairs(shape_old) do
-				vm:set_node_at(p, {name = p.name, param2 = p.param2})
-				minetest.get_meta(p):from_table(nil)
-			end
-			for l = 1, #def.layers do
-				local shape = snake.shapes_get(def.name, l, chain, nil)
-				for _, p in ipairs(shape) do
+			-- Preform node changes if the root node has moved or spawned, clear nodes from the old chain and draw new ones to the new chain
+			-- The system expects the first layer to be the largest, used to generate the shells from which nodes are cleared or movable items detected
+			-- Node content and vector positions are mixed to make search and replace operations efficient, each node is represented as {x, y, z, name, param2}
+			if #chain == 0 or node.param2 ~= pos_root.param2 or not vector.equals(pos, pos_root) then
+				-- Store the outer shells of the old and new shapes using clear nodes then update the chain
+				-- If the head moved add its new position and remove links larger than the maximum length, if it only rotated update its entry instead
+				local shape_old = snake.shapes_get(def.name, 1, chain, def.nodes_clear)
+				if vector.equals(pos, pos_root) then
+					chain[1] = pos_root
+				else
+					table.insert(chain, 1, pos_root)
+					while #chain > #def.layers[1] do
+						table.remove(chain, #chain)
+					end
+				end
+				local shape_new = snake.shapes_get(def.name, 1, chain, def.nodes_clear)
+
+				-- Item movement: Store nodes and objects inside the shell that may need to be moved, nodes are stored as {x, y, z, name, param2} and objects as {x, y, z, obj}
+				local nodes_move = {}
+				local nodes = snake.node_find(vm, shape_old, def.nodes_moves, true)
+				for _, p in ipairs(nodes) do
+					if p.name ~= nil then p.meta = minetest.get_meta(p):to_table() end
+					table.insert(nodes_move, p)
+				end
+
+				-- Clear nodes from the old chain and redraw the shape, layers are drawn in order so that each carves through the shape of the previous layer
+				for _, p in ipairs(shape_old) do
 					vm:set_node_at(p, {name = p.name, param2 = p.param2})
+					minetest.get_meta(p):from_table(nil)
 				end
-			end
+				for l = 1, #def.layers do
+					local shape = snake.shapes_get(def.name, l, chain, nil)
+					for _, p in ipairs(shape) do
+						vm:set_node_at(p, {name = p.name, param2 = p.param2})
+					end
+				end
 
-			-- Item movement: Restore movable nodes and unstick objects, if the old position is covered find the closest free position in the chain and move there
-			if #nodes_move > 0 then
+				-- Item movement: Restore movable nodes and unstick objects, if the old position is covered find the closest free position in the chain and move there
 				for _, n1 in ipairs(nodes_move) do
 					local n_pos = n1
 					local n_current = vm:get_node_at(n_pos)
@@ -268,28 +271,42 @@ function snake.root_timer(pos)
 						n1.obj:set_pos(n_pos)
 					end
 				end
-			end
 
-			-- Create the new root node and commit changes to the map, call the destruct and construct functions on old and new nodes, set root metadata to the updated chain and path
-			for _, p in ipairs(shape_old) do
-				local d = minetest.registered_nodes[minetest.get_node(p).name]
-				if d.on_destruct ~= nil then d.on_destruct(p) end
+				-- Call the destruct function on old nodes and erase metadata, commit voxelmanip to the map and update root node, call the construct function on new nodes and configure metadata
+				for _, p in ipairs(shape_old) do
+					local n = minetest.get_node(p)
+					local m = minetest.get_meta(p)
+					local d = minetest.registered_nodes[n.name]
+					if d.on_destruct ~= nil then d.on_destruct(p) end
+					if snake.node_in(n.name, {"group:snake"}) then
+						m:from_table(nil)
+					end
+				end
+				minetest.remove_node(pos)
+				vm:write_to_map()
+				minetest.set_node(pos_root, {name = node.name, param2 = pos_root.param2})
+				for _, p in ipairs(shape_new) do
+					local n = minetest.get_node(p)
+					local m = minetest.get_meta(p)
+					local d = minetest.registered_nodes[n.name]
+					if d.on_construct ~= nil then d.on_construct(p) end
+					if snake.node_in(n.name, {"group:snake"}) then
+						m:from_table(nil)
+						m:set_string("root", vector.to_string(pos_root))
+					end
+				end
 			end
-			vm:set_node_at(pos_root, {name = node.name, param2 = pos_root.param2})
-			vm:write_to_map()
-			for _, p in ipairs(shape_new) do
-				local d = minetest.registered_nodes[minetest.get_node(p).name]
-				if d.on_construct ~= nil then d.on_construct(p) end
-			end
-			local new_meta = minetest.get_meta(pos_root)
-			new_meta:set_string("chain", minetest.serialize(chain))
-			new_meta:set_string("path", minetest.serialize(path))
 		end
-	end
 
-	-- Schedule the timer to run again
-	local timer = def.time_min + math.random() * (def.time_max - def.time_min)
-	minetest.get_node_timer(pos_root):start(timer)
+		local root_meta = minetest.get_meta(pos_root)
+		root_meta:set_string("chain", minetest.serialize(chain))
+		root_meta:set_string("path", minetest.serialize(path))
+		root_meta:set_float("health", health)
+		root_meta:set_string("infotext", "Health: " .. tostring(health))
+
+		local timer = def.time_min + math.random() * (def.time_max - def.time_min)
+		minetest.get_node_timer(pos_root):start(timer)
+	end
 end
 
 function snake.root_construct(pos)
@@ -297,6 +314,7 @@ function snake.root_construct(pos)
 	local meta = minetest.get_meta(pos)
 	meta:set_string("chain", minetest.serialize({}))
 	meta:set_string("path", minetest.serialize({}))
+	meta:set_float("health", 1)
 	minetest.get_node_timer(pos):stop()
 end
 

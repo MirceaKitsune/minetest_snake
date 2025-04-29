@@ -30,7 +30,7 @@ Egg nodes are made available to the player and can be placed on the ground to ha
   - `time_min`: Minimum number of seconds before the egg may hatch.
   - `time_max`: Maximum number of seconds before the egg may hatch.
 
-All snake nodes must be registered using the functions described below, which automatically assign core variables and handle shape caching. The following groups are assigned and may be used to detect snake nodes: `"snake"` for all nodes making up the body of a snake, `"snake_root"` to describe the root node, `"snake_egg"` to describe egg nodes.
+All snake nodes must be registered using the functions described below, which automatically assign core variables and handle shape caching.
 
   - `snake.register_node`: For registering body nodes that are created and destroyed as the snake moves.
   - `snake.register_root`: For registering the root node, automatically assigns the following builtin functions:
@@ -43,6 +43,19 @@ All snake nodes must be registered using the functions described below, which au
     - `on_construct`: Must be set to `snake.egg_construct`.
     - `on_destruct`: Must be set to `snake.egg_destruct`.
     - `on_blast`: Must be set to `snake.egg_destruct`.
+
+The following groups are automatically assigned by the node registration functions and used to detect snake nodes:
+
+  - `snake`: Describes all nodes making up the body.
+  - `snake_root`: Used to describe the root node.
+  - `snake_egg`: Used to describe egg nodes.
+
+The metadata fields below are set on snake nodes. Most are stored on the root node, with a few special strings set on body nodes created when the snake moves.
+
+  - `chain`: Stored on root nodes. List of positions describing each link in a chain, items are vectors in the form `{x, y, z, param2}`. Each shape in a layer is drawn to match this chain and face toward the orientation of its link.
+  - `path`: Stored on root nodes. List of positions describing, items are vectors of the form `{x, y, z}`. Used by the pathfinding system to store the path toward the current target.
+  - `health`: Stored on root nodes. Float describing the health of this snake as a value between 0 and 1. The snake will only move when its health is 1 to avoid overriding midding or damaged nodes, when health reaches 0 the root node removes itself. Must be modified by mods to damage or heal as intended.
+  - `root`: Stored on body nodes. The position of the root node. Mods can convert this to a vector and get the node at that position to check the status of the heart node or access its properties.
 
 The API offers a shape library to facilitate drawing multiple nodes as part of the `snake.draw` object, containing optional helper functions mods can use to automate certain operations and node shapes. Draw functions include:
 

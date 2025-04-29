@@ -1,5 +1,5 @@
 -- Snake mod by MirceaKitsune
-snake_default = {}
+snake_default = {timer_min = 5, timer_max = 10, health_regenerate = 0.0005, health_damage = 0.05}
 
 -- Helper for adding a node list multiple times to a layer
 function layer_add(layer, count, nodes)
@@ -59,31 +59,186 @@ layer_add(layer_air, 1, nodes_air_head)
 layer_add(layer_air, 12, nodes_air_segment)
 layer_add(layer_detail, 1, nodes_detail_head)
 
-snake.register_node("snake_default:snake_body", {
-	description = "Snake body",
-	tiles = {"snake_default_body.png"},
-	paramtype2 = "facedir",
-	drawtype = "normal",
-	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
-	sounds = default.node_sound_dirt_defaults(),
+-- Node functions
+
+-- On construct: Start node timer
+function snake_default.on_construct_timer(pos)
+	minetest.get_node_timer(pos):start(0)
+end
+
+-- On destruct: Stop node timer
+function snake_default.on_destruct_timer(pos)
+	minetest.get_node_timer(pos):stop()
+end
+
+-- On dig: Set self to the rotten variant and create a blood source nearby
+function snake_default.on_dig_damage(pos, node, digger)
+	local name = node.name .. "_rotten"
+	minetest.swap_node(pos, {name = name, param2 = node.param2})
+	minetest.registered_nodes[name].on_construct(pos)
+
+	local dirs = {}
+	for _, dir in pairs(snake.dir6) do
+		local dir_pos = vector.add(pos, dir)
+		if minetest.get_node(dir_pos).name == "air" then table.insert(dirs, dir_pos) end
+	end
+	if #dirs > 0 then
+		local node_pos = dirs[math.random(#dirs)]
+		local node_name = "snake_default:snake_blood_source"
+		minetest.set_node(node_pos, {name = node_name})
+		minetest.registered_nodes[node_name].on_construct(node_pos)
+	end
+end
+
+-- On dig: Set a node to blood source
+function snake_default.on_dig_clear(pos, node, digger)
+	local name = "snake_default:snake_blood_source"
+	minetest.swap_node(pos, {name = name})
+	minetest.registered_nodes[name].on_construct(pos)
+
+	minetest.remove_node(pos)
+	minetest.get_node_timer(pos):stop()
+end
+
+-- On timer: Heal the root node each tick, rots self if there's no root node or health is 0
+function snake_default.on_timer_heal(pos)
+	local root_pos = vector.from_string(minetest.get_meta(pos):get_string("root"))
+	local root_node = minetest.get_node(root_pos)
+	local root_meta = minetest.get_meta(root_pos)
+	if root_pos and root_node.name == "snake_default:snake_heart" and root_meta then
+		root_meta:set_float("health", math.min(1, root_meta:get_float("health") + snake_default.health_regenerate))
+	else
+		local node = minetest.get_node(pos)
+		local name = node.name .. "_rotten"
+		minetest.swap_node(pos, {name = name, param2 = node.param2})
+		minetest.registered_nodes[name].on_construct(pos)
+	end
+
+	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
+	minetest.get_node_timer(pos):start(timer)
+end
+
+-- On timer: Damage the root node each tick, clears self if there's no root node or health is 0
+function snake_default.on_timer_damage(pos)
+	local root_pos = vector.from_string(minetest.get_meta(pos):get_string("root"))
+	local root_node = minetest.get_node(root_pos)
+	local root_meta = minetest.get_meta(root_pos)
+	if root_pos and root_node.name == "snake_default:snake_heart" and root_meta then
+		root_meta:set_float("health", math.max(0, root_meta:get_float("health") - snake_default.health_damage))
+	else
+		minetest.remove_node(pos)
+	end
+
+	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
+	minetest.get_node_timer(pos):start(timer)
+end
+
+function snake_default.blood_construct(pos)
+	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
+	minetest.get_node_timer(pos):start(timer)
+end
+
+function snake_default.blood_destruct(pos)
+	minetest.get_node_timer(pos):stop()
+end
+
+function snake_default.blood_timer(pos)
+	minetest.remove_node(pos)
+end
+
+-- Node definitions
+
+minetest.register_node("snake_default:snake_blood_source", {
+	description = "Snake blood source",
+	drawtype = "liquid",
+	waving = 3,
+	tiles = {
+		{
+			name = "snake_default_blood_source_animated.png",
+			backface_culling = false,
+			animation = {
+				type = "vertical_frames",
+				aspect_w = 16,
+				aspect_h = 16,
+				length = 2,
+			},
+		},
+		{
+			name = "snake_default_blood_source_animated.png",
+			backface_culling = true,
+			animation = {
+				type = "vertical_frames",
+				aspect_w = 16,
+				aspect_h = 16,
+				length = 2,
+			},
+		},
+	},
+	use_texture_alpha = "opaque",
+	paramtype = "light",
+	walkable = false,
+	pointable = false,
+	diggable = false,
+	buildable_to = true,
+	is_ground_content = false,
+	drop = "",
+	drowning = 1,
+	liquidtype = "source",
+	liquid_alternative_flowing = "snake_default:snake_blood_flowing",
+	liquid_alternative_source = "snake_default:snake_blood_source",
+	liquid_viscosity = 1,
+	post_effect_color = {r = 127, g = 15, b = 15, a = 127},
+	groups = {water = 3, liquid = 3, cools_lava = 1},
+	sounds = default.node_sound_water_defaults(),
+	on_construct = snake_default.blood_construct,
+	on_destruct = snake_default.blood_destruct,
+	on_timer = snake_default.blood_timer,
 })
 
-snake.register_node("snake_default:snake_eye", {
-	description = "Snake eye",
-	tiles = {"snake_default_eye.png", "snake_default_eye.png", "snake_default_eye.png", "snake_default_eye.png", "snake_default_eye.png", "snake_default_eye_0.png"},
-	paramtype2 = "facedir",
-	drawtype = "normal",
-	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
-	sounds = default.node_sound_dirt_defaults(),
-})
-
-snake.register_node("snake_default:snake_bone", {
-	description = "Snake bone",
-	tiles = {"snake_default_bone.png"},
-	paramtype2 = "facedir",
-	drawtype = "normal",
-	groups = {fleshy = 1, crumbly = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
-	sounds = default.node_sound_stone_defaults(),
+minetest.register_node("snake_default:snake_blood_flowing", {
+	description = "Flowing snake blood",
+	drawtype = "flowingliquid",
+	waving = 3,
+	tiles = {"snake_default_blood.png"},
+	special_tiles = {
+		{
+			name = "snake_default_blood_flowing_animated.png",
+			backface_culling = false,
+			animation = {
+				type = "vertical_frames",
+				aspect_w = 16,
+				aspect_h = 16,
+				length = 0.5,
+			},
+		},
+		{
+			name = "snake_default_blood_flowing_animated.png",
+			backface_culling = true,
+			animation = {
+				type = "vertical_frames",
+				aspect_w = 16,
+				aspect_h = 16,
+				length = 0.5,
+			},
+		},
+	},
+	use_texture_alpha = "opaque",
+	paramtype = "light",
+	paramtype2 = "flowingliquid",
+	walkable = false,
+	pointable = false,
+	diggable = false,
+	buildable_to = true,
+	is_ground_content = false,
+	drop = "",
+	drowning = 1,
+	liquidtype = "flowing",
+	liquid_alternative_flowing = "snake_default:snake_blood_flowing",
+	liquid_alternative_source = "snake_default:snake_blood_source",
+	liquid_viscosity = 1,
+	post_effect_color = {r = 127, g = 15, b = 15, a = 127},
+	groups = {water = 3, liquid = 3, not_in_creative_inventory = 1, cools_lava = 1},
+	sounds = default.node_sound_water_defaults(),
 })
 
 snake.register_node("snake_default:snake_flesh", {
@@ -102,6 +257,84 @@ snake.register_node("snake_default:snake_flesh", {
 	drawtype = "normal",
 	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
 	sounds = default.node_sound_dirt_defaults(),
+	on_construct = snake_default.on_construct_timer,
+	on_destruct = snake_default.on_destruct_timer,
+	on_dig = snake_default.on_dig_damage,
+	on_timer = snake_default.on_timer_heal,
+})
+
+snake.register_node("snake_default:snake_flesh_rotten", {
+	description = "Snake flesh rotten",
+	tiles = {"snake_default_flesh_rotten.png"},
+	paramtype2 = "facedir",
+	drawtype = "normal",
+	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
+	sounds = default.node_sound_dirt_defaults(),
+	on_construct = snake_default.on_construct_timer,
+	on_destruct = snake_default.on_destruct_timer,
+	on_dig = snake_default.on_dig_clear,
+	on_timer = snake_default.on_timer_damage,
+})
+
+snake.register_node("snake_default:snake_body", {
+	description = "Snake body",
+	tiles = {"snake_default_body.png"},
+	paramtype2 = "facedir",
+	drawtype = "normal",
+	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
+	sounds = default.node_sound_dirt_defaults(),
+	on_construct = snake_default.on_construct_timer,
+	on_destruct = snake_default.on_destruct_timer,
+	on_dig = snake_default.on_dig_damage,
+	on_timer = snake_default.on_timer_heal,
+})
+
+snake.register_node("snake_default:snake_body_rotten", {
+	description = "Snake body rotten",
+	tiles = {"snake_default_body_rotten.png"},
+	paramtype2 = "facedir",
+	drawtype = "normal",
+	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
+	sounds = default.node_sound_dirt_defaults(),
+	on_construct = snake_default.on_construct_timer,
+	on_destruct = snake_default.on_destruct_timer,
+	on_dig = snake_default.on_dig_clear,
+	on_timer = snake_default.on_timer_damage,
+})
+
+snake.register_node("snake_default:snake_eye", {
+	description = "Snake eye",
+	tiles = {"snake_default_eye.png", "snake_default_eye.png", "snake_default_eye.png", "snake_default_eye.png", "snake_default_eye.png", "snake_default_eye_0.png"},
+	paramtype2 = "facedir",
+	drawtype = "normal",
+	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
+	sounds = default.node_sound_dirt_defaults(),
+	on_construct = snake_default.on_construct_timer,
+	on_destruct = snake_default.on_destruct_timer,
+	on_dig = snake_default.on_dig_damage,
+	on_timer = snake_default.on_timer_heal,
+})
+
+snake.register_node("snake_default:snake_eye_rotten", {
+	description = "Snake eye rotten",
+	tiles = {"snake_default_eye.png", "snake_default_eye.png", "snake_default_eye.png", "snake_default_eye.png", "snake_default_eye.png", "snake_default_eye_rotten.png"},
+	paramtype2 = "facedir",
+	drawtype = "normal",
+	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
+	sounds = default.node_sound_dirt_defaults(),
+	on_construct = snake_default.on_construct_timer,
+	on_destruct = snake_default.on_destruct_timer,
+	on_dig = snake_default.on_dig_clear,
+	on_timer = snake_default.on_timer_damage,
+})
+
+snake.register_node("snake_default:snake_bone", {
+	description = "Snake bone",
+	tiles = {"snake_default_bone.png"},
+	paramtype2 = "facedir",
+	drawtype = "normal",
+	groups = {fleshy = 1, crumbly = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
+	sounds = default.node_sound_stone_defaults(),
 })
 
 snake.register_root("snake_default:snake_heart", {
@@ -136,7 +369,7 @@ snake.register_root("snake_default:snake_heart", {
 	sight_max = 64,
 	goal_climb = 16,
 	nodes_clear = {"air"},
-	nodes_moves = {"group:snappy", "group:attached_node"},
+	nodes_moves = {"default:chest", "default:chest_locked", "default:chest_open", "default:chest_locked_open", "default:furnace", "default:furnace_active", "group:attached_node"},
 	nodes_goal = {"default:meselamp"},
 	nodes_goal_wield = {"default:meselamp"},
 })
