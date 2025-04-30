@@ -1,6 +1,8 @@
-# Node snake for Minetest
+# Node snake for Luanti
 
 A customizable node based snake that moves around. Spawn one, place an objective node nearby, and watch it travel the world! WIP and highly experimental.
+
+![alt text](cover.png)
 
 ## API
 

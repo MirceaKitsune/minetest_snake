@@ -15,7 +15,7 @@ end
 -- Checks whether a node name either has the same name or is part of the same group as a list of nodes
 function snake.node_in(name, names)
 	for _, n in ipairs(names) do
-		if name == n or minetest.get_item_group(name, string.sub(n, 7)) > 0 then return true end
+		if name == n or core.get_item_group(name, string.sub(n, 7)) > 0 then return true end
 	end
 	return false
 end
@@ -31,7 +31,7 @@ function snake.node_find(vm, nodes, names, objects)
 			table.insert(nodes_new, {x = p.x, y = p.y, z = p.z, name = node.name, param2 = node.param2})
 		end
 		if objects then
-			for obj in minetest.objects_in_area(vector.subtract(p, 0.5), vector.add(p, 0.5)) do
+			for obj in core.objects_in_area(vector.subtract(p, 0.5), vector.add(p, 0.5)) do
 				local obj_pos = vector.round(obj:get_pos())
 				table.insert(nodes_new, {x = obj_pos.x, y = obj_pos.y, z = obj_pos.z, obj = obj})
 			end
@@ -44,17 +44,17 @@ end
 -- Storage order: Name, layer, shape, facedir
 function snake.shapes_set(name)
 	snake.shapes[name] = {}
-	for l, layer in pairs(minetest.registered_nodes[name].layers) do
+	for l, layer in pairs(core.registered_nodes[name].layers) do
 		snake.shapes[name][l] = {}
 		for i, nodes in pairs(layer) do
 			snake.shapes[name][l][i] = {}
 			for _, dir in pairs(snake.dir6) do
 				local nodes_hash = {}
-				local facedir = minetest.dir_to_facedir(-vector.new(dir))
+				local facedir = core.dir_to_facedir(-vector.new(dir))
 				snake.shapes[name][l][i][facedir] = {}
 				for _, node in ipairs(nodes) do
 					local pos = snake.node_rotated(vector.zero(), node, dir)
-					local hash = minetest.hash_node_position(pos)
+					local hash = core.hash_node_position(pos)
 					if nodes_hash[hash] == nil then
 						nodes_hash[hash] = node.name
 						table.insert(snake.shapes[name][l][i][facedir], {x = pos.x, y = pos.y, z = pos.z, name = node.name})
@@ -73,11 +73,11 @@ function snake.shapes_get(name, l, chain, names)
 	local layer = snake.shapes[name][l]
 	for i = 1, math.min(#chain, #layer) do
 		local facedir = chain[i].param2
-		local dir = -minetest.facedir_to_dir(facedir)
+		local dir = -core.facedir_to_dir(facedir)
 		local shape = layer[i][facedir]
 		for _, n in pairs(shape) do
 			local n_pos = vector.add(chain[i], n)
-			local hash = minetest.hash_node_position(n_pos)
+			local hash = core.hash_node_position(n_pos)
 			if nodes_hash[hash] == nil then
 				local n_name = names ~= nil and names[#names] or n.name[#n.name]
 				nodes_hash[hash] = n_name
@@ -89,22 +89,22 @@ function snake.shapes_get(name, l, chain, names)
 end
 
 function snake.root_timer(pos)
-	local node = minetest.get_node(pos)
-	local meta = minetest.get_meta(pos)
-	local def = minetest.registered_nodes[node.name]
+	local node = core.get_node(pos)
+	local meta = core.get_meta(pos)
+	local def = core.registered_nodes[node.name]
 	local pos_root = {x = pos.x, y = pos.y, z = pos.z, param2 = node.param2}
 
-	local chain = minetest.deserialize(meta:get_string("chain"))
-	local path = minetest.deserialize(meta:get_string("path"))
+	local chain = core.deserialize(meta:get_string("chain"))
+	local path = core.deserialize(meta:get_string("path"))
 	local health = meta:get_float("health")
 
 	if not chain or not path or health <= 0 then
-		minetest.remove_node(pos_root)
+		core.remove_node(pos_root)
 	else
 		-- Only preform updates if health is at 1 and a player is closer than the LOD range or LOD is disabled
 		local update = def.lod == 0 and health >= 1
 		if def.lod ~= 0 and health >= 1 then
-			for obj in minetest.objects_inside_radius(pos_root, def.lod) do
+			for obj in core.objects_inside_radius(pos_root, def.lod) do
 				if obj:is_player() then
 					update = true
 					break
@@ -133,27 +133,27 @@ function snake.root_timer(pos)
 				if p.y + bbox_dist + 1 > bbox_max.y then bbox_max.y = p.y + bbox_dist + 1 end
 				if p.z + bbox_dist + 1 > bbox_max.z then bbox_max.z = p.z + bbox_dist + 1 end
 			end
-			local vm = minetest.get_voxel_manip(bbox_min, bbox_max)
+			local vm = core.get_voxel_manip(bbox_min, bbox_max)
 
 			-- Look for targets within the area defined by sight, travel from the eye position to the best goal determined by the pathfinder
 			if def.chance_path >= math.random() then
-				local targets = minetest.find_nodes_in_area(vector.subtract(pos_root, def.sight_max), vector.add(pos_root, def.sight_max), def.nodes_goal, false)
-				for obj in minetest.objects_inside_radius(pos_root, def.sight_max) do
+				local targets = core.find_nodes_in_area(vector.subtract(pos_root, def.sight_max), vector.add(pos_root, def.sight_max), def.nodes_goal, false)
+				for obj in core.objects_inside_radius(pos_root, def.sight_max) do
 					if obj:is_player() and snake.node_in(obj:get_wielded_item():get_name(), def.nodes_goal_wield) then
 						table.insert(targets, vector.round(obj:get_pos()))
 					end
 				end
 
-				local pos_start = snake.node_rotated(pos_root, def.position_eye, -minetest.facedir_to_dir(pos_root.param2))
+				local pos_start = snake.node_rotated(pos_root, def.position_eye, -core.facedir_to_dir(pos_root.param2))
 				for _, target in ipairs(targets) do
 					local pos_end = vector.add(target, {x = 0, y = 1, z = 0})
 					local dist = vector.distance(pos_start, pos_end)
 					if dist >= def.sight_min and dist <= def.sight_max then
 						local path_new = {}
-						local path_get = minetest.find_path(pos_start, pos_end, def.goal_climb, def.goal_climb, def.goal_climb, nil) or {}
+						local path_get = core.find_path(pos_start, pos_end, def.goal_climb, def.goal_climb, def.goal_climb, nil) or {}
 						for _, p in pairs(path_get) do
 							local p_new = {x = p.x, y = p.y + def.height, z = p.z}
-							if snake.node_in(minetest.get_node(p_new).name, def.nodes_clear) then
+							if snake.node_in(core.get_node(p_new).name, def.nodes_clear) then
 								table.insert(path_new, p_new)
 							else break end
 						end
@@ -171,14 +171,14 @@ function snake.root_timer(pos)
 			if #path > 0 and def.chance_move >= math.random() then
 				local goal_dir = vector.round(vector.direction(pos, path[1]))
 				local goal_pos = vector.add(pos, goal_dir)
-				local roots = minetest.find_nodes_in_area(vector.subtract(pos_root, def.sight_max), vector.add(pos_root, def.sight_max), {"group:snake_root"}, false)
+				local roots = core.find_nodes_in_area(vector.subtract(pos_root, def.sight_max), vector.add(pos_root, def.sight_max), {"group:snake_root"}, false)
 				for _, p1 in ipairs(roots) do
 					if not vector.equals(pos_root, p1) then
-						local n = minetest.get_node(p1)
-						local m = minetest.get_meta(p1):to_table()
-						local c = minetest.deserialize(m.fields.chain)
+						local n = core.get_node(p1)
+						local m = core.get_meta(p1):to_table()
+						local c = core.deserialize(m.fields.chain)
 						for _, p2 in ipairs(c) do
-							local r = def.radius + minetest.registered_nodes[n.name].radius
+							local r = def.radius + core.registered_nodes[n.name].radius
 							if vector.distance(goal_pos, p2) <= r then goal_pos = nil end
 							if goal_pos == nil then break end
 						end
@@ -187,9 +187,9 @@ function snake.root_timer(pos)
 				end
 
 				if goal_pos == nil then
-					pos_root.param2 = minetest.dir_to_facedir(-goal_dir, true)
+					pos_root.param2 = core.dir_to_facedir(-goal_dir, true)
 				else
-					pos_root = {x = goal_pos.x, y = goal_pos.y, z = goal_pos.z, param2 = minetest.dir_to_facedir(-goal_dir, true)}
+					pos_root = {x = goal_pos.x, y = goal_pos.y, z = goal_pos.z, param2 = core.dir_to_facedir(-goal_dir, true)}
 					if math.floor(vector.distance(pos_root, path[#path])) <= def.radius then
 						path = {}
 					elseif math.floor(vector.distance(pos_root, path[1])) <= def.radius then
@@ -206,7 +206,7 @@ function snake.root_timer(pos)
 						table.insert(dirs, dir)
 					end
 				end
-				pos_root.param2 = minetest.dir_to_facedir(dirs[math.random(#dirs)])
+				pos_root.param2 = core.dir_to_facedir(dirs[math.random(#dirs)])
 			end
 
 			-- Preform node changes if the root node has moved or spawned, clear nodes from the old chain and draw new ones to the new chain
@@ -230,14 +230,14 @@ function snake.root_timer(pos)
 				local nodes_move = {}
 				local nodes = snake.node_find(vm, shape_old, def.nodes_moves, true)
 				for _, p in ipairs(nodes) do
-					if p.name ~= nil then p.meta = minetest.get_meta(p):to_table() end
+					if p.name ~= nil then p.meta = core.get_meta(p):to_table() end
 					table.insert(nodes_move, p)
 				end
 
 				-- Clear nodes from the old chain and redraw the shape, layers are drawn in order so that each carves through the shape of the previous layer
 				for _, p in ipairs(shape_old) do
 					vm:set_node_at(p, {name = p.name, param2 = p.param2})
-					minetest.get_meta(p):from_table(nil)
+					core.get_meta(p):from_table(nil)
 				end
 				for l = 1, #def.layers do
 					local shape = snake.shapes_get(def.name, l, chain, nil)
@@ -266,7 +266,7 @@ function snake.root_timer(pos)
 
 					if n1.name ~= nil then
 						vm:set_node_at(n_pos, {name = n1.name, param2 = n1.param2})
-						minetest.get_meta(n_pos):from_table(n1.meta)
+						core.get_meta(n_pos):from_table(n1.meta)
 					elseif n1.obj ~= nil and not n_free then
 						n1.obj:set_pos(n_pos)
 					end
@@ -274,21 +274,21 @@ function snake.root_timer(pos)
 
 				-- Call the destruct function on old nodes and erase metadata, commit voxelmanip to the map and update root node, call the construct function on new nodes and configure metadata
 				for _, p in ipairs(shape_old) do
-					local n = minetest.get_node(p)
-					local m = minetest.get_meta(p)
-					local d = minetest.registered_nodes[n.name]
+					local n = core.get_node(p)
+					local m = core.get_meta(p)
+					local d = core.registered_nodes[n.name]
 					if d.on_destruct ~= nil then d.on_destruct(p) end
 					if snake.node_in(n.name, {"group:snake"}) then
 						m:from_table(nil)
 					end
 				end
-				minetest.remove_node(pos)
+				core.remove_node(pos)
 				vm:write_to_map()
-				minetest.set_node(pos_root, {name = node.name, param2 = pos_root.param2})
+				core.set_node(pos_root, {name = node.name, param2 = pos_root.param2})
 				for _, p in ipairs(shape_new) do
-					local n = minetest.get_node(p)
-					local m = minetest.get_meta(p)
-					local d = minetest.registered_nodes[n.name]
+					local n = core.get_node(p)
+					local m = core.get_meta(p)
+					local d = core.registered_nodes[n.name]
 					if d.on_construct ~= nil then d.on_construct(p) end
 					if snake.node_in(n.name, {"group:snake"}) then
 						m:from_table(nil)
@@ -298,56 +298,56 @@ function snake.root_timer(pos)
 			end
 		end
 
-		local root_meta = minetest.get_meta(pos_root)
-		root_meta:set_string("chain", minetest.serialize(chain))
-		root_meta:set_string("path", minetest.serialize(path))
+		local root_meta = core.get_meta(pos_root)
+		root_meta:set_string("chain", core.serialize(chain))
+		root_meta:set_string("path", core.serialize(path))
 		root_meta:set_float("health", health)
-		root_meta:set_string("infotext", "Health: " .. tostring(health))
+		root_meta:set_string("infotext", tostring(health))
 
 		local timer = def.time_min + math.random() * (def.time_max - def.time_min)
-		minetest.get_node_timer(pos_root):start(timer)
+		core.get_node_timer(pos_root):start(timer)
 	end
 end
 
 function snake.root_construct(pos)
-	local node = minetest.get_node(pos)
-	local meta = minetest.get_meta(pos)
-	meta:set_string("chain", minetest.serialize({}))
-	meta:set_string("path", minetest.serialize({}))
+	local node = core.get_node(pos)
+	local meta = core.get_meta(pos)
+	meta:set_string("chain", core.serialize({}))
+	meta:set_string("path", core.serialize({}))
 	meta:set_float("health", 1)
-	minetest.get_node_timer(pos):stop()
+	core.get_node_timer(pos):stop()
 end
 
 function snake.root_destruct(pos)
-	minetest.get_node_timer(pos):stop()
+	core.get_node_timer(pos):stop()
 end
 
 function snake.egg_timer(pos)
-	local node = minetest.get_node(pos)
-	local def = minetest.registered_nodes[node.name]
+	local node = core.get_node(pos)
+	local def = core.registered_nodes[node.name]
 	local name_spawn = def.nodes_root[math.random(#def.nodes_root)]
-	local def_spawn = minetest.registered_nodes[name_spawn]
+	local def_spawn = core.registered_nodes[name_spawn]
 	local pos_spawn = vector.add(pos, {x = 0, y = def_spawn.height, z = 0})
 	local name_clear = def_spawn.nodes_clear[math.random(#def_spawn.nodes_clear)]
-	minetest.set_node(pos, {name = name_clear})
-	minetest.set_node(pos_spawn, {name = name_spawn})
-	minetest.get_node_timer(pos_spawn):start(0)
+	core.set_node(pos, {name = name_clear})
+	core.set_node(pos_spawn, {name = name_spawn})
+	core.get_node_timer(pos_spawn):start(0)
 end
 
 function snake.egg_construct(pos)
-	local node = minetest.get_node(pos)
-	local def = minetest.registered_nodes[node.name]
+	local node = core.get_node(pos)
+	local def = core.registered_nodes[node.name]
 	local timer = def.time_min + math.random() * (def.time_max - def.time_min)
-	minetest.get_node_timer(pos):start(timer)
+	core.get_node_timer(pos):start(timer)
 end
 
 function snake.egg_destruct(pos)
-	minetest.get_node_timer(pos):stop()
+	core.get_node_timer(pos):stop()
 end
 
 function snake.register_node(name, data)
 	data.groups.snake = 1
-	minetest.register_node(name, data)
+	core.register_node(name, data)
 end
 
 function snake.register_root(name, data)
@@ -357,7 +357,7 @@ function snake.register_root(name, data)
 	data.on_construct = snake.root_construct
 	data.on_destruct = snake.root_destruct
 	data.on_blast = snake.root_destruct
-	minetest.register_node(name, data)
+	core.register_node(name, data)
 	snake.shapes_set(name)
 end
 
@@ -367,8 +367,8 @@ function snake.register_egg(name, data)
 	data.on_construct = snake.egg_construct
 	data.on_destruct = snake.egg_destruct
 	data.on_blast = snake.egg_destruct
-	minetest.register_node(name, data)
+	core.register_node(name, data)
 end
 
-local snake_path = minetest.get_modpath("snake")
+local snake_path = core.get_modpath("snake")
 dofile(snake_path .. "/draw.lua")

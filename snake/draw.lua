@@ -41,7 +41,7 @@ function snake.draw.add(nodes_list)
 	local nodes = {}
 	for _, nodes_list in pairs(nodes_list) do
 		for _, n in pairs(nodes_list) do
-			local hash = minetest.hash_node_position(n)
+			local hash = core.hash_node_position(n)
 			if nodes_hash[hash] == nil then
 				nodes_hash[hash] = n.name
 				table.insert(nodes, {x = n.x, y = n.y, z = n.z, name = n.name})

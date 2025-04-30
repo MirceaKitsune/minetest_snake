@@ -2,6 +2,7 @@
 snake_default = {
 	timer_min = 5,
 	timer_max = 10,
+	chance_expire = 0.1,
 	damage_on_heal = -0.001,
 	damage_on_rot = 0.0005,
 	damage_dig_healthy = 0.05,
@@ -17,9 +18,9 @@ end
 
 -- Helper: Get the health of the root node for pos
 function snake_default.node_health_get(pos, amount)
-	local root_pos = vector.from_string(minetest.get_meta(pos):get_string("root"))
+	local root_pos = vector.from_string(core.get_meta(pos):get_string("root"))
 	if root_pos then
-		local root_meta = minetest.get_meta(root_pos)
+		local root_meta = core.get_meta(root_pos)
 		if root_meta and root_meta:contains("health") then
 			return root_meta:get_float("health")
 		end
@@ -29,38 +30,39 @@ end
 
 -- Helper: Set the health of the root node for pos
 function snake_default.node_health_set(pos, amount)
-	local root_pos = vector.from_string(minetest.get_meta(pos):get_string("root"))
+	local root_pos = vector.from_string(core.get_meta(pos):get_string("root"))
 	if root_pos then
-		local root_meta = minetest.get_meta(root_pos)
+		local root_meta = core.get_meta(root_pos)
 		if root_meta and root_meta:contains("health") then
 			root_meta:set_float("health", math.max(0, math.min(1, root_meta:get_float("health") + amount)))
+			root_meta:set_string("infotext", tostring(root_meta:get_float("health")))
 		end
 	end
 end
 
 -- Helper: Change nodes to a new name
 function snake_default.node_change_swap(pos, name)
-	local node = minetest.get_node(pos)
-	minetest.swap_node(pos, {name = name, param2 = node.param2})
-	minetest.registered_nodes[name].on_construct(pos)
+	local node = core.get_node(pos)
+	core.swap_node(pos, {name = name, param2 = node.param2})
+	core.registered_nodes[name].on_construct(pos)
 end
 
 -- Helper: Change nodes based on a suffix
 function snake_default.node_change_suffix(pos, suffix)
-	local node = minetest.get_node(pos)
+	local node = core.get_node(pos)
 	local name = string.sub(node.name, -#suffix, -1) == suffix and string.sub(node.name, 1, -#suffix - 1) or node.name .. suffix
-	minetest.swap_node(pos, {name = name, param2 = node.param2})
-	minetest.registered_nodes[name].on_construct(pos)
+	core.swap_node(pos, {name = name, param2 = node.param2})
+	core.registered_nodes[name].on_construct(pos)
 end
 
 -- On construct: Start node timer
 function snake_default.on_construct_timer(pos)
-	minetest.get_node_timer(pos):start(0)
+	core.get_node_timer(pos):start(0)
 end
 
 -- On destruct: Stop node timer
 function snake_default.on_destruct_timer(pos)
-	minetest.get_node_timer(pos):stop()
+	core.get_node_timer(pos):stop()
 end
 
 -- Healthy flesh, On dig: Apply damage and switch to rotten variant
@@ -71,13 +73,13 @@ end
 
 -- Healthy flesh, On timer: Apply healing and switch to rotten variant based on health
 function snake_default.flesh_healthy_timer(pos)
+	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
+	core.get_node_timer(pos):start(timer)
+
 	if snake_default.node_health_get(pos) < math.random() then
 		snake_default.node_health_set(pos, -snake_default.damage_on_rot)
 		snake_default.node_change_suffix(pos, "_rotten")
 	end
-
-	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
-	minetest.get_node_timer(pos):start(timer)
 end
 
 -- Rotten flesh, On dig: Apply damage and switch to blood source
@@ -88,34 +90,34 @@ end
 
 -- Rotten flesh, On timer: Apply healing and switch to healthy variant based on health or clear self if health is 0
 function snake_default.flesh_rotten_timer(pos)
-	if snake_default.node_health_get(pos) <= 0 then
-		minetest.remove_node(pos)
-		minetest.get_node_timer(pos):stop()
-	else
-		if snake_default.node_health_get(pos) > math.random() then
-			snake_default.node_health_set(pos, -snake_default.damage_on_heal)
-			snake_default.node_change_suffix(pos, "_rotten")
-		end
+	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
+	core.get_node_timer(pos):start(timer)
 
-		local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
-		minetest.get_node_timer(pos):start(timer)
+	if snake_default.node_health_get(pos) <= 0 then
+		if snake_default.chance_expire > math.random() then
+			core.remove_node(pos)
+			core.get_node_timer(pos):stop()
+		end
+	elseif snake_default.node_health_get(pos) > math.random() then
+		snake_default.node_health_set(pos, -snake_default.damage_on_heal)
+		snake_default.node_change_suffix(pos, "_rotten")
 	end
 end
 
 -- Blood, On construct: Start node timer
 function snake_default.blood_construct(pos)
 	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
-	minetest.get_node_timer(pos):start(timer)
+	core.get_node_timer(pos):start(timer)
 end
 
 -- Blood, On destruct: Stop node timer
 function snake_default.blood_destruct(pos)
-	minetest.get_node_timer(pos):stop()
+	core.get_node_timer(pos):stop()
 end
 
 -- Blood, On timer: Remove self
 function snake_default.blood_timer(pos)
-	minetest.remove_node(pos)
+	core.remove_node(pos)
 end
 
 -- Shape definitions
@@ -169,7 +171,7 @@ snake_default.layer_add(snake_default.layer_air, 1, snake_default.nodes_air_head
 snake_default.layer_add(snake_default.layer_air, 12, snake_default.nodes_air_segment)
 snake_default.layer_add(snake_default.layer_detail, 1, snake_default.nodes_detail_head)
 
-minetest.register_node("snake_default:snake_blood_source", {
+core.register_node("snake_default:snake_blood_source", {
 	description = "Snake blood source",
 	drawtype = "liquid",
 	waving = 3,
@@ -216,7 +218,7 @@ minetest.register_node("snake_default:snake_blood_source", {
 	on_timer = snake_default.blood_timer,
 })
 
-minetest.register_node("snake_default:snake_blood_flowing", {
+core.register_node("snake_default:snake_blood_flowing", {
 	description = "Flowing snake blood",
 	drawtype = "flowingliquid",
 	waving = 3,
