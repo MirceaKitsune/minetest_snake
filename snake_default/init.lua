@@ -1,39 +1,149 @@
 -- Snake mod by MirceaKitsune
-snake_default = {timer_min = 5, timer_max = 10, health_regenerate = 0.0005, health_damage = 0.05}
+snake_default = {
+	timer_min = 5,
+	timer_max = 10,
+	damage_on_heal = -0.001,
+	damage_on_rot = 0.0005,
+	damage_dig_healthy = 0.05,
+	damage_dig_rotten = 0.1,
+}
 
--- Helper for adding a node list multiple times to a layer
-function layer_add(layer, count, nodes)
+-- Helper: Add a node list multiple times to a layer
+function snake_default.layer_add(layer, count, nodes)
 	for i = 1, count do
 		table.insert(layer, nodes)
 	end
 end
 
+-- Helper: Get the health of the root node for pos
+function snake_default.node_health_get(pos, amount)
+	local root_pos = vector.from_string(minetest.get_meta(pos):get_string("root"))
+	if root_pos then
+		local root_meta = minetest.get_meta(root_pos)
+		if root_meta and root_meta:contains("health") then
+			return root_meta:get_float("health")
+		end
+	end
+	return 0
+end
+
+-- Helper: Set the health of the root node for pos
+function snake_default.node_health_set(pos, amount)
+	local root_pos = vector.from_string(minetest.get_meta(pos):get_string("root"))
+	if root_pos then
+		local root_meta = minetest.get_meta(root_pos)
+		if root_meta and root_meta:contains("health") then
+			root_meta:set_float("health", math.max(0, math.min(1, root_meta:get_float("health") + amount)))
+		end
+	end
+end
+
+-- Helper: Change nodes to a new name
+function snake_default.node_change_swap(pos, name)
+	local node = minetest.get_node(pos)
+	minetest.swap_node(pos, {name = name, param2 = node.param2})
+	minetest.registered_nodes[name].on_construct(pos)
+end
+
+-- Helper: Change nodes based on a suffix
+function snake_default.node_change_suffix(pos, suffix)
+	local node = minetest.get_node(pos)
+	local name = string.sub(node.name, -#suffix, -1) == suffix and string.sub(node.name, 1, -#suffix - 1) or node.name .. suffix
+	minetest.swap_node(pos, {name = name, param2 = node.param2})
+	minetest.registered_nodes[name].on_construct(pos)
+end
+
+-- On construct: Start node timer
+function snake_default.on_construct_timer(pos)
+	minetest.get_node_timer(pos):start(0)
+end
+
+-- On destruct: Stop node timer
+function snake_default.on_destruct_timer(pos)
+	minetest.get_node_timer(pos):stop()
+end
+
+-- Healthy flesh, On dig: Apply damage and switch to rotten variant
+function snake_default.flesh_healthy_dig(pos, node, digger)
+	snake_default.node_health_set(pos, -snake_default.damage_dig_healthy)
+	snake_default.node_change_suffix(pos, "_rotten")
+end
+
+-- Healthy flesh, On timer: Apply healing and switch to rotten variant based on health
+function snake_default.flesh_healthy_timer(pos)
+	if snake_default.node_health_get(pos) < math.random() then
+		snake_default.node_health_set(pos, -snake_default.damage_on_rot)
+		snake_default.node_change_suffix(pos, "_rotten")
+	end
+
+	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
+	minetest.get_node_timer(pos):start(timer)
+end
+
+-- Rotten flesh, On dig: Apply damage and switch to blood source
+function snake_default.flesh_rotten_dig(pos, node, digger)
+	snake_default.node_health_set(pos, -snake_default.damage_dig_rotten)
+	snake_default.node_change_swap(pos, "snake_default:snake_blood_source")
+end
+
+-- Rotten flesh, On timer: Apply healing and switch to healthy variant based on health or clear self if health is 0
+function snake_default.flesh_rotten_timer(pos)
+	if snake_default.node_health_get(pos) <= 0 then
+		minetest.remove_node(pos)
+		minetest.get_node_timer(pos):stop()
+	else
+		if snake_default.node_health_get(pos) > math.random() then
+			snake_default.node_health_set(pos, -snake_default.damage_on_heal)
+			snake_default.node_change_suffix(pos, "_rotten")
+		end
+
+		local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
+		minetest.get_node_timer(pos):start(timer)
+	end
+end
+
+-- Blood, On construct: Start node timer
+function snake_default.blood_construct(pos)
+	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
+	minetest.get_node_timer(pos):start(timer)
+end
+
+-- Blood, On destruct: Stop node timer
+function snake_default.blood_destruct(pos)
+	minetest.get_node_timer(pos):stop()
+end
+
+-- Blood, On timer: Remove self
+function snake_default.blood_timer(pos)
+	minetest.remove_node(pos)
+end
+
 -- Shape definitions
-local nodes_body_head = snake.draw.add({
+snake_default.nodes_body_head = snake.draw.add({
 	snake.draw.round({"snake_default:snake_body"}, {x = 0, y = 0, z = 0}, 5, 0.25),
 	snake.draw.round({"snake_default:snake_body"}, {x = 0, y = -2, z = 5}, 2, 0.25), -- Nose
 	snake.draw.round({"snake_default:snake_body"}, {x = -4, y = 4, z = 0}, 2, 0.25), -- Ear left
 	snake.draw.round({"snake_default:snake_body"}, {x = 4, y = 4, z = 0}, 2, 0.25), -- Ear right
 })
-local nodes_body_segment = snake.draw.add({
+snake_default.nodes_body_segment = snake.draw.add({
 	snake.draw.round({"snake_default:snake_body"}, {x = 0, y = -1, z = 0}, 4, 0.25),
 })
-local nodes_body_tail = snake.draw.add({
+snake_default.nodes_body_tail = snake.draw.add({
 	snake.draw.round({"snake_default:snake_body"}, {x = 0, y = -2, z = 0}, 3, 0.25),
 })
-local nodes_flesh_head = snake.draw.add({
+snake_default.nodes_flesh_head = snake.draw.add({
 	snake.draw.round({"snake_default:snake_flesh"}, {x = 0, y = 0, z = 0}, 4, 0.25),
 })
-local nodes_flesh_segment = snake.draw.add({
+snake_default.nodes_flesh_segment = snake.draw.add({
 	snake.draw.round({"snake_default:snake_flesh"}, {x = 0, y = -1, z = 0}, 3, 0.25),
 })
-local nodes_air_head = snake.draw.add({
+snake_default.nodes_air_head = snake.draw.add({
 	snake.draw.round({"air"}, {x = 0, y = 0, z = 0}, 3, 0.125),
 })
-local nodes_air_segment = snake.draw.add({
+snake_default.nodes_air_segment = snake.draw.add({
 	snake.draw.round({"air"}, {x = 0, y = -1, z = 0}, 2, 0.125),
 })
-local nodes_detail_head = snake.draw.add({
+snake_default.nodes_detail_head = snake.draw.add({
 	snake.draw.fill({"snake_default:snake_flesh"}, {x = 0, y = 1, z = 0}, {x = 0, y = 3, z = 0}), -- Heart string
 	snake.draw.single({"snake_default:snake_eye"}, {x = -2, y = 0, z = 5}), -- Eye left
 	snake.draw.single({"snake_default:snake_eye"}, {x = 2, y = 0, z = 5}), -- Eye right
@@ -46,107 +156,18 @@ local nodes_detail_head = snake.draw.add({
 })
 
 -- Layer definitions
-local layer_body = {}
-local layer_flesh = {}
-local layer_air = {}
-local layer_detail = {}
-layer_add(layer_body, 1, nodes_body_head)
-layer_add(layer_body, 12, nodes_body_segment)
-layer_add(layer_body, 3, nodes_body_tail)
-layer_add(layer_flesh, 1, nodes_flesh_head)
-layer_add(layer_flesh, 12, nodes_flesh_segment)
-layer_add(layer_air, 1, nodes_air_head)
-layer_add(layer_air, 12, nodes_air_segment)
-layer_add(layer_detail, 1, nodes_detail_head)
-
--- Node functions
-
--- On construct: Start node timer
-function snake_default.on_construct_timer(pos)
-	minetest.get_node_timer(pos):start(0)
-end
-
--- On destruct: Stop node timer
-function snake_default.on_destruct_timer(pos)
-	minetest.get_node_timer(pos):stop()
-end
-
--- On dig: Set self to the rotten variant and create a blood source nearby
-function snake_default.on_dig_damage(pos, node, digger)
-	local name = node.name .. "_rotten"
-	minetest.swap_node(pos, {name = name, param2 = node.param2})
-	minetest.registered_nodes[name].on_construct(pos)
-
-	local dirs = {}
-	for _, dir in pairs(snake.dir6) do
-		local dir_pos = vector.add(pos, dir)
-		if minetest.get_node(dir_pos).name == "air" then table.insert(dirs, dir_pos) end
-	end
-	if #dirs > 0 then
-		local node_pos = dirs[math.random(#dirs)]
-		local node_name = "snake_default:snake_blood_source"
-		minetest.set_node(node_pos, {name = node_name})
-		minetest.registered_nodes[node_name].on_construct(node_pos)
-	end
-end
-
--- On dig: Set a node to blood source
-function snake_default.on_dig_clear(pos, node, digger)
-	local name = "snake_default:snake_blood_source"
-	minetest.swap_node(pos, {name = name})
-	minetest.registered_nodes[name].on_construct(pos)
-
-	minetest.remove_node(pos)
-	minetest.get_node_timer(pos):stop()
-end
-
--- On timer: Heal the root node each tick, rots self if there's no root node or health is 0
-function snake_default.on_timer_heal(pos)
-	local root_pos = vector.from_string(minetest.get_meta(pos):get_string("root"))
-	local root_node = minetest.get_node(root_pos)
-	local root_meta = minetest.get_meta(root_pos)
-	if root_pos and root_node.name == "snake_default:snake_heart" and root_meta then
-		root_meta:set_float("health", math.min(1, root_meta:get_float("health") + snake_default.health_regenerate))
-	else
-		local node = minetest.get_node(pos)
-		local name = node.name .. "_rotten"
-		minetest.swap_node(pos, {name = name, param2 = node.param2})
-		minetest.registered_nodes[name].on_construct(pos)
-	end
-
-	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
-	minetest.get_node_timer(pos):start(timer)
-end
-
--- On timer: Damage the root node each tick, clears self if there's no root node or health is 0
-function snake_default.on_timer_damage(pos)
-	local root_pos = vector.from_string(minetest.get_meta(pos):get_string("root"))
-	local root_node = minetest.get_node(root_pos)
-	local root_meta = minetest.get_meta(root_pos)
-	if root_pos and root_node.name == "snake_default:snake_heart" and root_meta then
-		root_meta:set_float("health", math.max(0, root_meta:get_float("health") - snake_default.health_damage))
-	else
-		minetest.remove_node(pos)
-	end
-
-	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
-	minetest.get_node_timer(pos):start(timer)
-end
-
-function snake_default.blood_construct(pos)
-	local timer = snake_default.timer_min + math.random() * (snake_default.timer_max - snake_default.timer_min)
-	minetest.get_node_timer(pos):start(timer)
-end
-
-function snake_default.blood_destruct(pos)
-	minetest.get_node_timer(pos):stop()
-end
-
-function snake_default.blood_timer(pos)
-	minetest.remove_node(pos)
-end
-
--- Node definitions
+snake_default.layer_body = {}
+snake_default.layer_flesh = {}
+snake_default.layer_air = {}
+snake_default.layer_detail = {}
+snake_default.layer_add(snake_default.layer_body, 1, snake_default.nodes_body_head)
+snake_default.layer_add(snake_default.layer_body, 12, snake_default.nodes_body_segment)
+snake_default.layer_add(snake_default.layer_body, 3, snake_default.nodes_body_tail)
+snake_default.layer_add(snake_default.layer_flesh, 1, snake_default.nodes_flesh_head)
+snake_default.layer_add(snake_default.layer_flesh, 12, snake_default.nodes_flesh_segment)
+snake_default.layer_add(snake_default.layer_air, 1, snake_default.nodes_air_head)
+snake_default.layer_add(snake_default.layer_air, 12, snake_default.nodes_air_segment)
+snake_default.layer_add(snake_default.layer_detail, 1, snake_default.nodes_detail_head)
 
 minetest.register_node("snake_default:snake_blood_source", {
 	description = "Snake blood source",
@@ -259,8 +280,8 @@ snake.register_node("snake_default:snake_flesh", {
 	sounds = default.node_sound_dirt_defaults(),
 	on_construct = snake_default.on_construct_timer,
 	on_destruct = snake_default.on_destruct_timer,
-	on_dig = snake_default.on_dig_damage,
-	on_timer = snake_default.on_timer_heal,
+	on_dig = snake_default.flesh_healthy_dig,
+	on_timer = snake_default.flesh_healthy_timer,
 })
 
 snake.register_node("snake_default:snake_flesh_rotten", {
@@ -272,8 +293,8 @@ snake.register_node("snake_default:snake_flesh_rotten", {
 	sounds = default.node_sound_dirt_defaults(),
 	on_construct = snake_default.on_construct_timer,
 	on_destruct = snake_default.on_destruct_timer,
-	on_dig = snake_default.on_dig_clear,
-	on_timer = snake_default.on_timer_damage,
+	on_dig = snake_default.flesh_rotten_dig,
+	on_timer = snake_default.flesh_rotten_timer,
 })
 
 snake.register_node("snake_default:snake_body", {
@@ -285,8 +306,8 @@ snake.register_node("snake_default:snake_body", {
 	sounds = default.node_sound_dirt_defaults(),
 	on_construct = snake_default.on_construct_timer,
 	on_destruct = snake_default.on_destruct_timer,
-	on_dig = snake_default.on_dig_damage,
-	on_timer = snake_default.on_timer_heal,
+	on_dig = snake_default.flesh_healthy_dig,
+	on_timer = snake_default.flesh_healthy_timer,
 })
 
 snake.register_node("snake_default:snake_body_rotten", {
@@ -298,8 +319,8 @@ snake.register_node("snake_default:snake_body_rotten", {
 	sounds = default.node_sound_dirt_defaults(),
 	on_construct = snake_default.on_construct_timer,
 	on_destruct = snake_default.on_destruct_timer,
-	on_dig = snake_default.on_dig_clear,
-	on_timer = snake_default.on_timer_damage,
+	on_dig = snake_default.flesh_rotten_dig,
+	on_timer = snake_default.flesh_rotten_timer,
 })
 
 snake.register_node("snake_default:snake_eye", {
@@ -311,8 +332,8 @@ snake.register_node("snake_default:snake_eye", {
 	sounds = default.node_sound_dirt_defaults(),
 	on_construct = snake_default.on_construct_timer,
 	on_destruct = snake_default.on_destruct_timer,
-	on_dig = snake_default.on_dig_damage,
-	on_timer = snake_default.on_timer_heal,
+	on_dig = snake_default.flesh_healthy_dig,
+	on_timer = snake_default.flesh_healthy_timer,
 })
 
 snake.register_node("snake_default:snake_eye_rotten", {
@@ -324,8 +345,8 @@ snake.register_node("snake_default:snake_eye_rotten", {
 	sounds = default.node_sound_dirt_defaults(),
 	on_construct = snake_default.on_construct_timer,
 	on_destruct = snake_default.on_destruct_timer,
-	on_dig = snake_default.on_dig_clear,
-	on_timer = snake_default.on_timer_damage,
+	on_dig = snake_default.flesh_rotten_dig,
+	on_timer = snake_default.flesh_rotten_timer,
 })
 
 snake.register_node("snake_default:snake_bone", {
@@ -355,7 +376,7 @@ snake.register_root("snake_default:snake_heart", {
 	groups = {fleshy = 1, choppy = 1, not_in_creative_inventory = 1, oddly_breakable_by_hand = 1},
 	sounds = default.node_sound_stone_defaults(),
 
-	layers = {layer_body, layer_flesh, layer_air, layer_detail},
+	layers = {snake_default.layer_body, snake_default.layer_flesh, snake_default.layer_air, snake_default.layer_detail},
 	radius = 6,
 	time_min = 1,
 	time_max = 1,
